@@ -1,0 +1,50 @@
+name: Feature request
+description: Suggest an improvement for Lid Awake
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for suggesting an improvement. If the request touches helper, `pmset`, signing, launch at login, or closed-lid behavior, include the safety impact.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What workflow is difficult or missing today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: What should Lid Awake do differently?
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: What workarounds or other designs did you consider?
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Menu bar UI
+        - Settings UI
+        - Battery guardrails
+        - Closed-lid behavior
+        - Helper approval
+        - Launch at login
+        - Build or packaging
+        - Documentation
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: safety
+    attributes:
+      label: Safety impact
+      description: Note any power-management, helper, signing, or user-permission impact.
