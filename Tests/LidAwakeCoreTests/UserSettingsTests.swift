@@ -13,6 +13,7 @@ final class UserSettingsTests: XCTestCase {
         XCTAssertEqual(settings.idleReleaseDelaySeconds, 30)
         XCTAssertTrue(settings.preventDisplaySleep)
         XCTAssertEqual(settings.lidClosedDisplayMode, .turnDisplayOff)
+        XCTAssertFalse(settings.lockScreenWhenLidCloses)
         XCTAssertFalse(settings.shouldPreventDisplaySleep)
         XCTAssertTrue(settings.shouldPreventClosedLidSleep)
         XCTAssertNil(settings.pauseUntil)
@@ -36,6 +37,7 @@ final class UserSettingsTests: XCTestCase {
         XCTAssertFalse(settings.launchAtLogin)
         XCTAssertEqual(settings.batteryCutoffPercent, 15)
         XCTAssertEqual(settings.lidClosedDisplayMode, .turnDisplayOff)
+        XCTAssertFalse(settings.lockScreenWhenLidCloses)
     }
 
     func testDisplaySleepAssertionRequiresKeepDisplayOnMode() {

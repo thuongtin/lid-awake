@@ -32,6 +32,7 @@ public struct UserSettings: Codable, Equatable, Sendable {
     public var idleReleaseDelaySeconds: TimeInterval
     public var preventDisplaySleep: Bool
     public var lidClosedDisplayMode: LidClosedDisplayMode
+    public var lockScreenWhenLidCloses: Bool
     public var pauseUntil: Date?
 
     public init(
@@ -43,6 +44,7 @@ public struct UserSettings: Codable, Equatable, Sendable {
         idleReleaseDelaySeconds: TimeInterval = 30,
         preventDisplaySleep: Bool = true,
         lidClosedDisplayMode: LidClosedDisplayMode = .turnDisplayOff,
+        lockScreenWhenLidCloses: Bool = false,
         pauseUntil: Date? = nil
     ) {
         self.enabled = enabled
@@ -53,6 +55,7 @@ public struct UserSettings: Codable, Equatable, Sendable {
         self.idleReleaseDelaySeconds = idleReleaseDelaySeconds
         self.preventDisplaySleep = preventDisplaySleep
         self.lidClosedDisplayMode = lidClosedDisplayMode
+        self.lockScreenWhenLidCloses = lockScreenWhenLidCloses
         self.pauseUntil = pauseUntil
     }
 
@@ -75,6 +78,7 @@ public struct UserSettings: Codable, Equatable, Sendable {
         case idleReleaseDelaySeconds
         case preventDisplaySleep
         case lidClosedDisplayMode
+        case lockScreenWhenLidCloses
         case pauseUntil
     }
 
@@ -91,6 +95,10 @@ public struct UserSettings: Codable, Equatable, Sendable {
             LidClosedDisplayMode.self,
             forKey: .lidClosedDisplayMode
         ) ?? .turnDisplayOff
+        self.lockScreenWhenLidCloses = try container.decodeIfPresent(
+            Bool.self,
+            forKey: .lockScreenWhenLidCloses
+        ) ?? false
         self.pauseUntil = try container.decodeIfPresent(Date.self, forKey: .pauseUntil)
     }
 }

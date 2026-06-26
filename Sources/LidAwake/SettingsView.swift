@@ -213,6 +213,15 @@ struct SettingsView: View {
 
                     Divider()
 
+                    ToggleRow(
+                        title: "Lock Mac when lid closes",
+                        subtitle: "Switch to the lock screen once per lid closure.",
+                        systemImage: "lock.fill",
+                        isOn: boolBinding(\.lockScreenWhenLidCloses)
+                    )
+
+                    Divider()
+
                     InfoLine(
                         title: "System closed-lid mode",
                         value: model.closedLidStatus.displayText,
@@ -258,6 +267,14 @@ struct SettingsView: View {
                             title: "Display sleep error",
                             value: error,
                             systemImage: "display.trianglebadge.exclamationmark"
+                        )
+                    }
+
+                    if let error = model.closedLidLockError {
+                        InfoLine(
+                            title: "Screen lock error",
+                            value: error,
+                            systemImage: "exclamationmark.triangle"
                         )
                     }
                 }

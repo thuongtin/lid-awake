@@ -85,6 +85,22 @@ The lid-close display mode has two separate effects:
 
 macOS and hardware policy can still affect final display behavior.
 
+## Lock On Lid Close Does Not Trigger
+
+The lock-on-close option requests a macOS lock path after Lid Awake observes the lid as closed. It first uses `CGSession -suspend` when that command exists on the system. On macOS builds where `CGSession` is not available, it falls back to opening `ScreenSaverEngine.app`.
+
+This does not require the advanced helper and it does not use `sudo`. The `ScreenSaverEngine.app` fallback depends on the user's macOS security setting for requiring a password after the screen saver starts.
+
+Check:
+
+- Lid Awake is running.
+- Keep awake is enabled.
+- Settings has `Lock Mac when lid closes` enabled.
+- The app has enough time to observe the closed lid before macOS sleeps the machine.
+- If the system uses the screen saver fallback, System Settings requires a password immediately after the screen saver begins.
+
+If the Mac sleeps immediately before the app can observe the lid closure, enable the normal keep-awake flow and test again while on AC power.
+
 ## Assertions Remain After Quit
 
 Check assertions:

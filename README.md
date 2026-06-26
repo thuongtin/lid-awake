@@ -15,6 +15,7 @@ Lid Awake is pre-release software. The source tree can build, test, stage, and p
 - Optional launch at login.
 - Optional closed-lid mode through a macOS-approved privileged helper.
 - Display-on or display-off behavior for supported closed-lid workflows.
+- Optional lock screen request when the lid closes.
 - CI-safe checks separated from local runtime verification.
 - Local release archive creation with SHA-256 checksum.
 

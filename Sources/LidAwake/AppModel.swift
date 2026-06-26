@@ -52,6 +52,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var closedLidHelperStatus: ClosedLidHelperStatus = .notRegistered
     @Published private(set) var closedLidError: String?
     @Published private(set) var closedLidDisplayError: String?
+    @Published private(set) var closedLidLockError: String?
     @Published private(set) var isChangingClosedLidMode = false
 
     private let settingsStore: UserSettingsStoring
@@ -64,10 +65,11 @@ final class AppModel: ObservableObject {
     private let powerController: PowerAssertionControlling
     private let coordinator: WakePolicyCoordinator
     private let closedLidDisplayCoordinator: ClosedLidDisplayCoordinator
+    private let closedLidLockCoordinator: ClosedLidLockCoordinator
     private let notificationService: NotificationServicing
     private var previousStatus: WakeStatus = .inactive
     private var timer: Timer?
-    private var closedLidDisplayTimer: Timer?
+    private var closedLidSideEffectsTimer: Timer?
     private var closedLidOwnershipRecord: ClosedLidOwnershipRecord?
     private var suppressedClosedLidTarget: Bool?
 
@@ -90,6 +92,10 @@ final class AppModel: ObservableObject {
                 clamshellStateReader: IOKitClamshellStateReader(),
                 displaySleeper: PMSetDisplaySleepService()
             ),
+            closedLidLockCoordinator: ClosedLidLockCoordinator(
+                clamshellStateReader: IOKitClamshellStateReader(),
+                deviceLocker: SystemScreenLockService()
+            ),
             notificationService: SystemNotificationService(),
             initialBattery: BatteryState.desktopOrUnknown(
                 lowPowerMode: ProcessInfo.processInfo.isLowPowerModeEnabled
@@ -107,6 +113,7 @@ final class AppModel: ObservableObject {
         powerController: PowerAssertionControlling,
         clock: Clock,
         closedLidDisplayCoordinator: ClosedLidDisplayCoordinator,
+        closedLidLockCoordinator: ClosedLidLockCoordinator,
         notificationService: NotificationServicing,
         initialBattery: BatteryState
     ) {
@@ -122,6 +129,7 @@ final class AppModel: ObservableObject {
             clock: clock
         )
         self.closedLidDisplayCoordinator = closedLidDisplayCoordinator
+        self.closedLidLockCoordinator = closedLidLockCoordinator
         self.notificationService = notificationService
         self.settings = settingsStore.load()
         self.battery = initialBattery
@@ -144,10 +152,10 @@ final class AppModel: ObservableObject {
                 self?.evaluate()
             }
         }
-        closedLidDisplayTimer?.invalidate()
-        closedLidDisplayTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+        closedLidSideEffectsTimer?.invalidate()
+        closedLidSideEffectsTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             Task { @MainActor in
-                self?.reconcileClosedLidDisplay()
+                self?.reconcileClosedLidSideEffects()
             }
         }
     }
@@ -237,8 +245,8 @@ final class AppModel: ObservableObject {
         logger.info("Lid Awake model stop")
         timer?.invalidate()
         timer = nil
-        closedLidDisplayTimer?.invalidate()
-        closedLidDisplayTimer = nil
+        closedLidSideEffectsTimer?.invalidate()
+        closedLidSideEffectsTimer = nil
         powerController.release()
         restoreClosedLidModeForTerminationIfNeeded()
     }
@@ -352,7 +360,7 @@ final class AppModel: ObservableObject {
         }
         notificationService.handleTransition(from: previousStatus, to: status)
         reconcileClosedLidMode(desired: shouldEnableClosedLidMode, forceDisable: false)
-        reconcileClosedLidDisplay()
+        reconcileClosedLidSideEffects()
     }
 
     private func manualHoldSessions(now: Date) -> [AgentSession] {
@@ -552,7 +560,31 @@ final class AppModel: ObservableObject {
             closedLidError = closedLidUserFacingError(from: error)
         }
 
+        reconcileClosedLidSideEffects()
+    }
+
+    private func reconcileClosedLidSideEffects() {
+        reconcileClosedLidLock()
         reconcileClosedLidDisplay()
+    }
+
+    private func reconcileClosedLidLock() {
+        let action = closedLidLockCoordinator.update(settings: settings)
+
+        if !settings.lockScreenWhenLidCloses {
+            closedLidLockError = nil
+        }
+
+        switch action {
+        case .none:
+            break
+        case .requestedLock:
+            closedLidLockError = nil
+            logger.info("requested screen lock for closed lid")
+        case let .failed(message):
+            closedLidLockError = message
+            logger.error("screen lock request failed message=\(message, privacy: .public)")
+        }
     }
 
     private func reconcileClosedLidDisplay() {

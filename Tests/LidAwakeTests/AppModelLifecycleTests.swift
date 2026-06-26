@@ -175,6 +175,10 @@ private final class AppModelHarness {
                 clamshellStateReader: FakeClamshellStateReader(),
                 displaySleeper: FakeDisplaySleeper()
             ),
+            closedLidLockCoordinator: ClosedLidLockCoordinator(
+                clamshellStateReader: FakeClamshellStateReader(),
+                deviceLocker: FakeDeviceLocker()
+            ),
             notificationService: notificationService,
             initialBattery: batteryMonitor.currentState()
         )
@@ -317,6 +321,10 @@ private final class FakeClamshellStateReader: ClamshellStateReading {
 
 private final class FakeDisplaySleeper: DisplaySleeping {
     func sleepDisplaysNow() throws {}
+}
+
+private final class FakeDeviceLocker: DeviceLocking {
+    func lockScreenNow() throws {}
 }
 
 @MainActor
