@@ -12,7 +12,8 @@ cd "$ROOT_DIR"
 CONFIGURATION=release ./script/stage_app.sh
 
 version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$INFO_PLIST")"
-archive="$RELEASE_DIR/LidAwake-$version-macos.zip"
+archive_name="LidAwake-$version-macos.zip"
+archive="$RELEASE_DIR/$archive_name"
 checksum="$archive.sha256"
 
 mkdir -p "$RELEASE_DIR"
@@ -23,5 +24,8 @@ rm -f "$archive" "$checksum"
   ditto -c -k --keepParent "LidAwake.app" "$archive"
 )
 
-shasum -a 256 "$archive" >"$checksum"
+(
+  cd "$RELEASE_DIR"
+  shasum -a 256 "$archive_name" >"$(basename "$checksum")"
+)
 printf '%s\n' "$archive"
