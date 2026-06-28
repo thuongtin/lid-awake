@@ -11,8 +11,9 @@ The format follows dated release sections after the first tagged release.
 - Added local helper maintenance commands for development builds, including `--helper-status`, `--helper-repair`, and `--helper-remove`.
 - Added Accessibility refresh handling for lock-on-close so stale screen lock errors clear after the current app is approved in System Settings.
 - Added separate Accessibility warning banners and quick actions for lock-on-close in both the menu bar UI and Settings.
-- Added `--screen-lock-status` for local diagnosis of the active lock method, Accessibility trust state, bundle identifier, and bundle path.
+- Added `--screen-lock-status` for local diagnosis of the active lock method, Accessibility trust state, bundle identifier, bundle path, and signing mode.
 - Added a developer permissions guide covering helper approval, Accessibility, signing, and diagnostic commands.
+- Added an ad-hoc signing warning during staging because Accessibility and LaunchDaemon approvals can become stale after rebuilds.
 - Changed local staging to prefer an available Apple code signing identity because macOS blocks the privileged LaunchDaemon helper when it is ad-hoc signed.
 
 ## 0.1.0 - 2026-06-26

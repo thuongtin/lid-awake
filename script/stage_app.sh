@@ -51,6 +51,11 @@ if [[ -z "$SIGNING_IDENTITY" ]]; then
   SIGNING_IDENTITY="-"
 fi
 
+if [[ "$SIGNING_IDENTITY" == "-" ]]; then
+  echo "warning: no Developer ID Application or Apple Development signing identity found; using ad-hoc signing" >&2
+  echo "warning: Accessibility and LaunchDaemon approvals can become stale after each rebuild" >&2
+fi
+
 swift build -c "$CONFIGURATION" --product "$APP_PRODUCT"
 swift build -c "$CONFIGURATION" --product "$HELPER_PRODUCT"
 BUILD_BIN_DIR="$(swift build -c "$CONFIGURATION" --show-bin-path)"

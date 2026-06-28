@@ -204,15 +204,15 @@ final class AppModel: ObservableObject {
     }
 
     var screenLockPermissionTitle: String {
-        "Allow Accessibility for Lock Screen"
+        "Accessibility Is Not Trusted For This Build"
     }
 
     var screenLockPermissionMessage: String {
-        "Lock-on-close uses the main Lid Awake app to send the system Lock Screen shortcut on this macOS build."
+        "Lock-on-close uses the main Lid Awake app to send the system Lock Screen shortcut. If Lid Awake already appears allowed, remove that old entry and add the current app again."
     }
 
     var screenLockPermissionCompactMessage: String {
-        "Allow the current Lid Awake app in Accessibility to use lock-on-close."
+        "If Lid Awake already appears allowed, remove it and add the current app again."
     }
 
     var closedLidAttentionTitle: String {

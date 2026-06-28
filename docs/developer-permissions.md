@@ -55,15 +55,21 @@ Expected output when the fallback is active and permission is correct:
 screenLockMethod=keyboardShortcut
 accessibilityTrusted=true
 bundleIdentifier=com.thuongtin.LidAwake
+teamIdentifier=ABCDE12345
+codeSigningMode=identified
 ```
 
-If `accessibilityTrusted=false`, remove stale Lid Awake entries from Accessibility and add the current app bundle again. This often happens when switching between `dist/LidAwake.app`, `/Applications/LidAwake.app`, and rebuilt bundles with a different signing identity.
+If `accessibilityTrusted=false`, remove stale Lid Awake entries from Accessibility and add the current app bundle again. This often happens when switching between `dist/LidAwake.app`, `/Applications/LidAwake.app`, rebuilt bundles with a different signing identity, or ad-hoc builds.
+
+If the command reports `codeSigningMode=adhoc` or `teamIdentifier=not set`, treat the Accessibility result with care. System Settings can show an old `LidAwake` row as enabled while the currently rebuilt app process is not trusted. Use a stable Apple signing identity for local QA when testing permissions repeatedly.
 
 ## Signing Requirements
 
 Local staging prefers the first available `Developer ID Application` or `Apple Development` signing identity. If no identity exists, staging falls back to ad-hoc signing.
 
 Ad-hoc signing is enough for build and packaging checks, but the advanced LaunchDaemon helper will not reliably run from an ad-hoc signed bundle on modern macOS.
+
+It also makes Accessibility debugging noisy because TCC may keep stale rows for older rebuilds. If System Settings shows Lid Awake as allowed but the app still displays the Accessibility warning, check `codeSigningMode` first.
 
 Check identities:
 

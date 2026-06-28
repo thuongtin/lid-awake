@@ -133,6 +133,14 @@ bundleIdentifier=com.thuongtin.LidAwake
 
 If `accessibilityTrusted=false`, remove old Lid Awake entries from Accessibility and add the current app again. This can happen after switching between `/Applications/LidAwake.app`, `dist/LidAwake.app`, or a rebuild signed with a different identity.
 
+If System Settings shows Lid Awake as allowed but the app still displays this warning, check whether the current bundle is ad-hoc signed:
+
+```bash
+dist/LidAwake.app/Contents/MacOS/LidAwake --screen-lock-status
+```
+
+If the output includes `codeSigningMode=adhoc` or `teamIdentifier=not set`, the visible Accessibility row may be stale for a previous rebuild. Use a stable Apple signing identity, or remove the old Lid Awake row and add the current app bundle again after rebuilding.
+
 Check:
 
 - Lid Awake is running.

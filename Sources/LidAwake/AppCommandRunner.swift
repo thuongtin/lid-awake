@@ -45,5 +45,42 @@ enum AppCommandRunner {
         }
         print("bundleIdentifier=\(Bundle.main.bundleIdentifier ?? "unknown")")
         print("bundlePath=\(Bundle.main.bundlePath)")
+        printCodeSigningStatus()
+    }
+
+    private static func printCodeSigningStatus() {
+        let process = Process()
+        let stderr = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/codesign")
+        process.arguments = ["-dv", Bundle.main.bundlePath]
+        process.standardError = stderr
+        process.standardOutput = Pipe()
+
+        do {
+            try process.run()
+            process.waitUntilExit()
+        } catch {
+            print("codeSigningStatus=unavailable")
+            print("codeSigningError=\(error.localizedDescription)")
+            return
+        }
+
+        let data = stderr.fileHandleForReading.readDataToEndOfFile()
+        let output = String(data: data, encoding: .utf8) ?? ""
+        let teamIdentifier = firstCodesignValue(named: "TeamIdentifier", in: output) ?? "unknown"
+        print("teamIdentifier=\(teamIdentifier)")
+        print("codeSigningMode=\(teamIdentifier == "not set" ? "adhoc" : "identified")")
+    }
+
+    private static func firstCodesignValue(named key: String, in output: String) -> String? {
+        for line in output.split(separator: "\n") {
+            let prefix = "\(key)="
+            guard line.hasPrefix(prefix) else {
+                continue
+            }
+            return String(line.dropFirst(prefix.count))
+        }
+
+        return nil
     }
 }
