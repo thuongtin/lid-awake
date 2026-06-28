@@ -82,6 +82,7 @@ Archives are written to `dist/releases` with a `.sha256` checksum. Local archive
 ## Documentation
 
 - [Power Model](docs/power-model.md): power-management behavior, helper trust boundary, and manual QA.
+- [Developer Permissions Guide](docs/developer-permissions.md): helper approval, Accessibility, signing, and local permission diagnostics.
 - [Releasing](docs/releasing.md): packaging, signing, checksum, and notarization guidance.
 - [Troubleshooting](docs/troubleshooting.md): common helper, permission, and power assertion issues.
 - [Contributing](CONTRIBUTING.md): development workflow and pull request expectations.

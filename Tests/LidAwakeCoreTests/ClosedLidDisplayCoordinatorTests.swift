@@ -22,7 +22,7 @@ final class ClosedLidDisplayCoordinatorTests: XCTestCase {
         XCTAssertEqual(displaySleeper.sleepCount, 1)
     }
 
-    func testRequestsDisplaySleepOnlyOnceForSameClosure() {
+    func testRetriesDisplaySleepDuringClosedLidTransitionThenStops() {
         let clamshellStateReader = FakeClamshellStateReader(state: .closed)
         let displaySleeper = FakeDisplaySleeper()
         let coordinator = ClosedLidDisplayCoordinator(
@@ -37,13 +37,61 @@ final class ClosedLidDisplayCoordinatorTests: XCTestCase {
             wakeStatus: holdingStatus(),
             closedLidStatus: .enabled
         )
-        let action = coordinator.update(
+        let secondAction = coordinator.update(
+            settings: settings,
+            wakeStatus: holdingStatus(),
+            closedLidStatus: .enabled
+        )
+        let thirdAction = coordinator.update(
+            settings: settings,
+            wakeStatus: holdingStatus(),
+            closedLidStatus: .enabled
+        )
+        let fourthAction = coordinator.update(
             settings: settings,
             wakeStatus: holdingStatus(),
             closedLidStatus: .enabled
         )
 
-        XCTAssertEqual(action, .none)
+        XCTAssertEqual(secondAction, .requestedDisplaySleep)
+        XCTAssertEqual(thirdAction, .requestedDisplaySleep)
+        XCTAssertEqual(fourthAction, .none)
+        XCTAssertEqual(displaySleeper.sleepCount, 3)
+    }
+
+    func testWaitsForLockedSessionBeforeDisplaySleepWhenLockOnCloseIsEnabled() {
+        let clamshellStateReader = FakeClamshellStateReader(state: .closed)
+        let displaySleeper = FakeDisplaySleeper()
+        let screenLockStateReader = FakeScreenLockStateReader(state: .unlocked)
+        let coordinator = ClosedLidDisplayCoordinator(
+            clamshellStateReader: clamshellStateReader,
+            displaySleeper: displaySleeper,
+            screenLockStateReader: screenLockStateReader
+        )
+        var settings = UserSettings.defaults
+        settings.lidClosedDisplayMode = .turnDisplayOff
+        settings.lockScreenWhenLidCloses = true
+
+        let firstAction = coordinator.update(
+            settings: settings,
+            wakeStatus: holdingStatus(),
+            closedLidStatus: .enabled
+        )
+        let secondAction = coordinator.update(
+            settings: settings,
+            wakeStatus: holdingStatus(),
+            closedLidStatus: .enabled
+        )
+        screenLockStateReader.state = .locked
+        let thirdAction = coordinator.update(
+            settings: settings,
+            wakeStatus: holdingStatus(),
+            closedLidStatus: .enabled
+        )
+
+        XCTAssertEqual(firstAction, .none)
+        XCTAssertEqual(secondAction, .none)
+        XCTAssertEqual(thirdAction, .requestedDisplaySleep)
         XCTAssertEqual(displaySleeper.sleepCount, 1)
     }
 
@@ -57,11 +105,13 @@ final class ClosedLidDisplayCoordinatorTests: XCTestCase {
         var settings = UserSettings.defaults
         settings.lidClosedDisplayMode = .turnDisplayOff
 
-        _ = coordinator.update(
-            settings: settings,
-            wakeStatus: holdingStatus(),
-            closedLidStatus: .enabled
-        )
+        for _ in 0..<3 {
+            _ = coordinator.update(
+                settings: settings,
+                wakeStatus: holdingStatus(),
+                closedLidStatus: .enabled
+            )
+        }
         clamshellStateReader.state = .open
         _ = coordinator.update(
             settings: settings,
@@ -76,7 +126,7 @@ final class ClosedLidDisplayCoordinatorTests: XCTestCase {
         )
 
         XCTAssertEqual(action, .requestedDisplaySleep)
-        XCTAssertEqual(displaySleeper.sleepCount, 2)
+        XCTAssertEqual(displaySleeper.sleepCount, 4)
     }
 
     func testDoesNotRequestDisplaySleepWhenKeepingDisplayOn() {
@@ -138,6 +188,18 @@ final class ClosedLidDisplayCoordinatorTests: XCTestCase {
         }
         XCTAssertTrue(message.contains("DisplaySleep"))
         XCTAssertEqual(displaySleeper.sleepCount, 1)
+    }
+}
+
+private final class FakeScreenLockStateReader: ScreenLockStateReading {
+    var state: ScreenLockState
+
+    init(state: ScreenLockState) {
+        self.state = state
+    }
+
+    func screenLockState() -> ScreenLockState {
+        state
     }
 }
 

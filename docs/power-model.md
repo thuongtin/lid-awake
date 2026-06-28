@@ -14,7 +14,7 @@ Advanced helper label: `com.thuongtin.LidAwake.Helper`.
 - Restores closed-lid mode when the user turns the mode off, pauses, disables the app, or quits after this app enabled it.
 - Releases assertions when manual hold is disabled, paused, or blocked by safety rules.
 - Releases assertions immediately when the app is disabled, paused, quit, blocked by battery cutoff, or blocked by Low Power Mode.
-- Optionally requests the macOS lock screen once per lid closure when the user enables lock-on-close. It uses `CGSession` when available and falls back to `ScreenSaverEngine.app` on macOS builds without that command.
+- Optionally requests the macOS lock screen when the user enables lock-on-close. It uses `CGSession` when available and falls back to the system Lock Screen keyboard shortcut on macOS builds without that command.
 - Does not detect coding agents or inspect process activity.
 - Can register as a macOS login item from Settings.
 
@@ -58,8 +58,8 @@ The app does not disable a closed-lid mode it did not enable. If macOS already r
 2. Manual hold enabled: `pmset -g assertions | rg 'Lid Awake|PreventUserIdle'` should show an app-owned prevent idle assertion.
 3. Advanced Helper setup: Settings should show `Ready` after System Settings approval.
 4. Keep-display-on selected with helper ready: `pmset -g` or `pmset -g custom` should report `SleepDisabled 1` or `disablesleep 1`, and app assertions should include display sleep prevention.
-5. Turn-display-off selected with helper ready: the same `pmset` output should report `1`, app assertions should not include display sleep prevention, and lid close should trigger `pmset displaysleepnow`.
-6. Lock-on-close enabled: closing the lid while Lid Awake is enabled should switch macOS to the lock screen once for that lid closure. If the system falls back to `ScreenSaverEngine.app`, password-after-screensaver must be enabled in macOS security settings.
+5. Turn-display-off selected with helper ready: the same `pmset` output should report `1`, app assertions should not include display sleep prevention, and lid close should trigger repeated `pmset displaysleepnow` requests during the first closed-lid transition ticks. When lock-on-close is also enabled, display sleep waits until macOS reports the session is locked.
+6. Lock-on-close enabled: closing the lid while Lid Awake is enabled should switch macOS to the lock screen. If the system falls back to the Lock Screen keyboard shortcut, Lid Awake must be allowed in Accessibility settings.
 7. Manual hold disabled: assertion should release.
 8. Battery guardrail: fake or manual low-battery state should release the assertion and restore closed-lid mode if this app enabled it.
 9. Quit app: no app-owned assertion should remain, and closed-lid mode should be restored if this app enabled it.

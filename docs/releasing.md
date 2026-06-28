@@ -12,7 +12,7 @@ Create a release configuration app bundle, zip archive, and checksum:
 
 The archive is written to `dist/releases/LidAwake-<version>-macos.zip` with a matching `.sha256` file. The version comes from `CFBundleShortVersionString` in the staged app `Info.plist`.
 
-By default, local archives are signed ad-hoc. An ad-hoc archive is useful for local packaging checks, but it is not a notarized public release and should not be uploaded as a final public download.
+By default, staging uses the first available `Developer ID Application` or `Apple Development` code signing identity. If none is available, it falls back to ad-hoc signing. An ad-hoc archive is useful for packaging checks, but the advanced LaunchDaemon helper will not run from an ad-hoc signed bundle and the archive should not be uploaded as a final public download.
 
 ## Signing Identity
 

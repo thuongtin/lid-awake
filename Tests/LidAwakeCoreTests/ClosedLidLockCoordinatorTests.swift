@@ -2,7 +2,7 @@ import LidAwakeCore
 import XCTest
 
 final class ClosedLidLockCoordinatorTests: XCTestCase {
-    func testLocksOnceWhenEnabledAndLidCloses() {
+    func testDefaultLocksOnceForSameClosure() {
         let clamshellStateReader = FakeLockClamshellStateReader(state: .closed)
         let deviceLocker = FakeDeviceLocker()
         let coordinator = ClosedLidLockCoordinator(
@@ -20,6 +20,29 @@ final class ClosedLidLockCoordinatorTests: XCTestCase {
         XCTAssertEqual(deviceLocker.lockCount, 1)
     }
 
+    func testRetriesLockDuringClosedLidTransitionThenStops() {
+        let clamshellStateReader = FakeLockClamshellStateReader(state: .closed)
+        let deviceLocker = FakeDeviceLocker()
+        let coordinator = ClosedLidLockCoordinator(
+            clamshellStateReader: clamshellStateReader,
+            deviceLocker: deviceLocker,
+            maximumLockRequests: 3
+        )
+        var settings = UserSettings.defaults
+        settings.lockScreenWhenLidCloses = true
+
+        let firstAction = coordinator.update(settings: settings)
+        let secondAction = coordinator.update(settings: settings)
+        let thirdAction = coordinator.update(settings: settings)
+        let fourthAction = coordinator.update(settings: settings)
+
+        XCTAssertEqual(firstAction, .requestedLock)
+        XCTAssertEqual(secondAction, .requestedLock)
+        XCTAssertEqual(thirdAction, .requestedLock)
+        XCTAssertEqual(fourthAction, .none)
+        XCTAssertEqual(deviceLocker.lockCount, 3)
+    }
+
     func testOpenLidResetsLockRequest() {
         let clamshellStateReader = FakeLockClamshellStateReader(state: .closed)
         let deviceLocker = FakeDeviceLocker()
@@ -30,7 +53,9 @@ final class ClosedLidLockCoordinatorTests: XCTestCase {
         var settings = UserSettings.defaults
         settings.lockScreenWhenLidCloses = true
 
-        _ = coordinator.update(settings: settings)
+        for _ in 0..<3 {
+            _ = coordinator.update(settings: settings)
+        }
         clamshellStateReader.state = .open
         _ = coordinator.update(settings: settings)
         clamshellStateReader.state = .closed

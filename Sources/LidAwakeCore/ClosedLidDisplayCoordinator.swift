@@ -14,6 +14,16 @@ public protocol DisplaySleeping: AnyObject {
     func sleepDisplaysNow() throws
 }
 
+public enum ScreenLockState: Equatable, Sendable {
+    case locked
+    case unlocked
+    case unavailable
+}
+
+public protocol ScreenLockStateReading: AnyObject {
+    func screenLockState() -> ScreenLockState
+}
+
 public enum ClosedLidDisplayAction: Equatable, Sendable {
     case none
     case requestedDisplaySleep
@@ -23,14 +33,20 @@ public enum ClosedLidDisplayAction: Equatable, Sendable {
 public final class ClosedLidDisplayCoordinator {
     private let clamshellStateReader: ClamshellStateReading
     private let displaySleeper: DisplaySleeping
-    private var didRequestDisplaySleepForCurrentClosure = false
+    private let screenLockStateReader: ScreenLockStateReading?
+    private let maximumDisplaySleepRequests: Int
+    private var displaySleepRequestCount = 0
 
     public init(
         clamshellStateReader: ClamshellStateReading,
-        displaySleeper: DisplaySleeping
+        displaySleeper: DisplaySleeping,
+        screenLockStateReader: ScreenLockStateReading? = nil,
+        maximumDisplaySleepRequests: Int = 3
     ) {
         self.clamshellStateReader = clamshellStateReader
         self.displaySleeper = displaySleeper
+        self.screenLockStateReader = screenLockStateReader
+        self.maximumDisplaySleepRequests = max(1, maximumDisplaySleepRequests)
     }
 
     @discardableResult
@@ -41,32 +57,45 @@ public final class ClosedLidDisplayCoordinator {
     ) -> ClosedLidDisplayAction {
         let clamshellState = clamshellStateReader.clamshellState()
         guard clamshellState == .closed else {
-            didRequestDisplaySleepForCurrentClosure = false
+            resetClosedLidTransition()
             return .none
         }
 
         guard settings.lidClosedDisplayMode == .turnDisplayOff else {
+            resetClosedLidTransition()
             return .none
         }
 
         guard closedLidStatus == .enabled else {
+            resetClosedLidTransition()
             return .none
         }
 
         guard case .holding = wakeStatus else {
+            resetClosedLidTransition()
             return .none
         }
 
-        guard !didRequestDisplaySleepForCurrentClosure else {
+        if settings.lockScreenWhenLidCloses,
+           screenLockStateReader?.screenLockState() != .locked {
+            return .none
+        }
+
+        guard displaySleepRequestCount < maximumDisplaySleepRequests else {
             return .none
         }
 
         do {
             try displaySleeper.sleepDisplaysNow()
-            didRequestDisplaySleepForCurrentClosure = true
+            displaySleepRequestCount += 1
             return .requestedDisplaySleep
         } catch {
+            displaySleepRequestCount += 1
             return .failed(error.localizedDescription)
         }
+    }
+
+    private func resetClosedLidTransition() {
+        displaySleepRequestCount = 0
     }
 }

@@ -6,6 +6,10 @@ import SwiftUI
 struct LidAwakeApplication: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
+    init() {
+        AppCommandRunner.runIfNeeded()
+    }
+
     var body: some Scene {
         MenuBarExtra {
             MenuBarContentView(

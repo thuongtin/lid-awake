@@ -1,0 +1,98 @@
+# Developer Permissions Guide
+
+Lid Awake uses two separate macOS permission paths. Keep them separate when debugging, reviewing issues, or preparing builds.
+
+## Permission Paths
+
+### Advanced Helper
+
+The advanced helper is `LidAwakeHelper` with launchd label `com.thuongtin.LidAwake.Helper`.
+
+It is used only for closed-lid sleep control. When approved, the main app can ask the helper through privileged XPC to run:
+
+```bash
+pmset -a disablesleep 1
+pmset -a disablesleep 0
+```
+
+The helper is approved through macOS ServiceManagement. It is not the Accessibility item.
+
+Useful checks:
+
+```bash
+dist/LidAwake.app/Contents/MacOS/LidAwake --helper-status
+launchctl print system/com.thuongtin.LidAwake.Helper
+pmset -g | rg 'SleepDisabled|disablesleep' || true
+```
+
+Repair a stale local helper registration:
+
+```bash
+dist/LidAwake.app/Contents/MacOS/LidAwake --helper-repair
+```
+
+Remove the helper registration:
+
+```bash
+dist/LidAwake.app/Contents/MacOS/LidAwake --helper-remove
+```
+
+### Accessibility For Lock Screen
+
+Accessibility belongs to the main `Lid Awake` app, not the helper.
+
+Lid Awake first tries `CGSession -suspend` for lock-on-close. On macOS builds where `CGSession` is missing, it falls back to posting the system Lock Screen keyboard shortcut with `CGEvent`. That fallback requires the current `Lid Awake` app bundle to be allowed in System Settings > Privacy & Security > Accessibility.
+
+Useful check:
+
+```bash
+dist/LidAwake.app/Contents/MacOS/LidAwake --screen-lock-status
+```
+
+Expected output when the fallback is active and permission is correct:
+
+```text
+screenLockMethod=keyboardShortcut
+accessibilityTrusted=true
+bundleIdentifier=com.thuongtin.LidAwake
+```
+
+If `accessibilityTrusted=false`, remove stale Lid Awake entries from Accessibility and add the current app bundle again. This often happens when switching between `dist/LidAwake.app`, `/Applications/LidAwake.app`, and rebuilt bundles with a different signing identity.
+
+## Signing Requirements
+
+Local staging prefers the first available `Developer ID Application` or `Apple Development` signing identity. If no identity exists, staging falls back to ad-hoc signing.
+
+Ad-hoc signing is enough for build and packaging checks, but the advanced LaunchDaemon helper will not reliably run from an ad-hoc signed bundle on modern macOS.
+
+Check identities:
+
+```bash
+codesign -dv dist/LidAwake.app 2>&1 | rg 'Identifier|TeamIdentifier'
+codesign -dv dist/LidAwake.app/Contents/Library/LaunchServices/LidAwakeHelper 2>&1 | rg 'Identifier|TeamIdentifier'
+```
+
+The identifiers must stay unchanged:
+
+```text
+com.thuongtin.LidAwake
+com.thuongtin.LidAwake.Helper
+```
+
+## Local QA Checklist
+
+1. Run `./scripts/check.sh`.
+2. Launch with `./script/build_and_run.sh`.
+3. In Settings > Behavior, confirm `Advanced Helper` is `Ready`.
+4. If lock-on-close is enabled, confirm `Screen lock permission` is `Allowed`.
+5. Confirm `pmset -g` reports `SleepDisabled 1` while the app is holding.
+6. If a permission looks stale, use the in-app quick action first, then verify with the matching command above.
+
+## UI Expectations
+
+The app should show separate warnings and quick actions for each permission path:
+
+- Advanced Helper warning: opens Login Items or helper approval settings.
+- Screen Lock permission warning: opens Privacy & Security > Accessibility for the main app.
+
+Do not ask users to add `LidAwakeHelper` to Accessibility. That is the wrong permission surface.

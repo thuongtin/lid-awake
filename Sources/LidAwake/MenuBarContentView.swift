@@ -12,6 +12,9 @@ struct MenuBarContentView: View {
             if model.closedLidControlNeedsAttention {
                 closedLidWarningPanel
             }
+            if model.screenLockPermissionNeedsAttention {
+                screenLockPermissionPanel
+            }
             metricsPanel
             quickActionsPanel
             footerActions
@@ -22,6 +25,7 @@ struct MenuBarContentView: View {
         .animation(.snappy(duration: 0.22), value: model.settings)
         .animation(.snappy(duration: 0.22), value: model.battery)
         .animation(.snappy(duration: 0.22), value: model.closedLidHelperStatus)
+        .animation(.snappy(duration: 0.22), value: model.screenLockAccessibilityTrusted)
         .onAppear {
             DispatchQueue.main.async {
                 model.refreshAfterExternalPermissionChange()
@@ -122,7 +126,7 @@ struct MenuBarContentView: View {
 
             HStack(spacing: 8) {
                 Button {
-                    model.setupClosedLidHelper()
+                    model.performClosedLidHelperAction()
                 } label: {
                     Label(model.closedLidCompactActionTitle, systemImage: "lock.shield")
                         .font(.caption.weight(.bold))
@@ -151,6 +155,65 @@ struct MenuBarContentView: View {
         .overlay {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .stroke(Color(red: 0.95, green: 0.48, blue: 0.10), lineWidth: 1)
+        }
+        .shadow(color: .black.opacity(0.18), radius: 10, y: 4)
+    }
+
+    private var screenLockPermissionPanel: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: "accessibility")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(Color(red: 0.44, green: 0.75, blue: 1.0))
+                    .frame(width: 34, height: 34)
+                    .background(Color(red: 0.04, green: 0.14, blue: 0.28), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(model.screenLockPermissionTitle)
+                        .font(.callout.weight(.bold))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.82)
+
+                    Text(model.screenLockPermissionCompactMessage)
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.white.opacity(0.84))
+                        .fixedSize(horizontal: false, vertical: true)
+                        .lineLimit(2)
+                }
+            }
+
+            HStack(spacing: 8) {
+                Button {
+                    model.openScreenLockAccessibilitySettings()
+                } label: {
+                    Label("Open Accessibility", systemImage: "accessibility")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(.black)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 32)
+                        .background(Color(red: 0.56, green: 0.78, blue: 1.0), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                }
+                .buttonStyle(.plain)
+
+                Button {
+                    model.refreshAfterExternalPermissionChange()
+                } label: {
+                    Label("Check", systemImage: "arrow.clockwise")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 32)
+                        .background(.white.opacity(0.16), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(14)
+        .background(Color(red: 0.03, green: 0.08, blue: 0.16), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(Color(red: 0.28, green: 0.60, blue: 1.0), lineWidth: 1)
         }
         .shadow(color: .black.opacity(0.18), radius: 10, y: 4)
     }

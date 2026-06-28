@@ -13,7 +13,7 @@ MIN_SYSTEM_VERSION="14.0"
 APP_VERSION="${APP_VERSION:-0.1.0}"
 APP_BUILD="${APP_BUILD:-1}"
 CONFIGURATION="${CONFIGURATION:-debug}"
-SIGNING_IDENTITY="${SIGNING_IDENTITY:--}"
+SIGNING_IDENTITY="${SIGNING_IDENTITY:-}"
 
 case "$CONFIGURATION" in
   debug|release)
@@ -39,6 +39,17 @@ INFO_PLIST="$APP_CONTENTS/Info.plist"
 ICONSET_DIR="$DIST_DIR/AppIcon.iconset"
 ICON_FILE="$DIST_DIR/LidAwake.icns"
 APP_ICON="$APP_RESOURCES/LidAwake.icns"
+
+if [[ -z "$SIGNING_IDENTITY" ]]; then
+  SIGNING_IDENTITY="$(
+    security find-identity -v -p codesigning 2>/dev/null \
+      | awk -F '"' '/"Developer ID Application:|"Apple Development:/ { print $2; exit }'
+  )"
+fi
+
+if [[ -z "$SIGNING_IDENTITY" ]]; then
+  SIGNING_IDENTITY="-"
+fi
 
 swift build -c "$CONFIGURATION" --product "$APP_PRODUCT"
 swift build -c "$CONFIGURATION" --product "$HELPER_PRODUCT"
@@ -115,7 +126,10 @@ PLIST
 if command -v codesign >/dev/null 2>&1; then
   codesign_args=(--force --sign "$SIGNING_IDENTITY")
   if [[ "$SIGNING_IDENTITY" != "-" ]]; then
-    codesign_args+=(--options runtime --timestamp)
+    codesign_args+=(--options runtime)
+    if [[ "$SIGNING_IDENTITY" == Developer\ ID\ Application:* ]]; then
+      codesign_args+=(--timestamp)
+    fi
   fi
   codesign "${codesign_args[@]}" --identifier "$HELPER_LABEL" "$HELPER_BINARY" >/dev/null
   codesign "${codesign_args[@]}" --identifier "$BUNDLE_ID" "$APP_BUNDLE" >/dev/null

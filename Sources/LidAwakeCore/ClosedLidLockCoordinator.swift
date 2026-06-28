@@ -13,38 +13,47 @@ public enum ClosedLidLockAction: Equatable, Sendable {
 public final class ClosedLidLockCoordinator {
     private let clamshellStateReader: ClamshellStateReading
     private let deviceLocker: DeviceLocking
-    private var didLockForCurrentClosure = false
+    private let maximumLockRequests: Int
+    private var lockRequestCount = 0
 
     public init(
         clamshellStateReader: ClamshellStateReading,
-        deviceLocker: DeviceLocking
+        deviceLocker: DeviceLocking,
+        maximumLockRequests: Int = 1
     ) {
         self.clamshellStateReader = clamshellStateReader
         self.deviceLocker = deviceLocker
+        self.maximumLockRequests = max(1, maximumLockRequests)
     }
 
     @discardableResult
     public func update(settings: UserSettings) -> ClosedLidLockAction {
         let clamshellState = clamshellStateReader.clamshellState()
         guard clamshellState == .closed else {
-            didLockForCurrentClosure = false
+            lockRequestCount = 0
             return .none
         }
 
         guard settings.enabled, settings.lockScreenWhenLidCloses else {
+            lockRequestCount = 0
             return .none
         }
 
-        guard !didLockForCurrentClosure else {
+        guard lockRequestCount < maximumLockRequests else {
             return .none
         }
 
         do {
             try deviceLocker.lockScreenNow()
-            didLockForCurrentClosure = true
+            lockRequestCount += 1
             return .requestedLock
         } catch {
+            lockRequestCount += 1
             return .failed(error.localizedDescription)
         }
+    }
+
+    public func reset() {
+        lockRequestCount = 0
     }
 }

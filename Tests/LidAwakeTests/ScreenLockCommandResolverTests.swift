@@ -3,50 +3,26 @@ import XCTest
 
 final class ScreenLockCommandResolverTests: XCTestCase {
     func testPrefersCGSessionWhenAvailable() {
-        let command = ScreenLockCommandResolver.resolve(
+        let method = ScreenLockCommandResolver.resolve(
             isExecutable: { path in
                 path == ScreenLockCommandResolver.cgSessionPath
-                    || path == ScreenLockCommandResolver.openPath
-            },
-            fileExists: { path in
-                path == ScreenLockCommandResolver.screenSaverAppPath
             }
         )
 
         XCTAssertEqual(
-            command,
-            ScreenLockCommand(
-                executablePath: ScreenLockCommandResolver.cgSessionPath,
-                arguments: ["-suspend"]
+            method,
+            .command(
+                ScreenLockCommand(
+                    executablePath: ScreenLockCommandResolver.cgSessionPath,
+                    arguments: ["-suspend"]
+                )
             )
         )
     }
 
-    func testFallsBackToScreenSaverEngineWhenCGSessionIsMissing() {
-        let command = ScreenLockCommandResolver.resolve(
-            isExecutable: { path in
-                path == ScreenLockCommandResolver.openPath
-            },
-            fileExists: { path in
-                path == ScreenLockCommandResolver.screenSaverAppPath
-            }
-        )
+    func testFallsBackToKeyboardShortcutWhenCGSessionIsMissing() {
+        let method = ScreenLockCommandResolver.resolve(isExecutable: { _ in false })
 
-        XCTAssertEqual(
-            command,
-            ScreenLockCommand(
-                executablePath: ScreenLockCommandResolver.openPath,
-                arguments: [ScreenLockCommandResolver.screenSaverAppPath]
-            )
-        )
-    }
-
-    func testReturnsNilWhenNoSupportedCommandIsAvailable() {
-        let command = ScreenLockCommandResolver.resolve(
-            isExecutable: { _ in false },
-            fileExists: { _ in false }
-        )
-
-        XCTAssertNil(command)
+        XCTAssertEqual(method, .keyboardShortcut)
     }
 }

@@ -24,6 +24,7 @@ protocol ClosedLidStatusReading {
 protocol ClosedLidHelperServicing: AnyObject {
     var status: ClosedLidHelperStatus { get }
     func register() throws
+    func repairRegistration() throws
     func unregister() throws
     func setClosedLidMode(enabled: Bool, reply: @escaping (Result<Void, Error>) -> Void)
     func openApprovalSettings()
@@ -53,7 +54,11 @@ final class AppModel: ObservableObject {
     @Published private(set) var closedLidError: String?
     @Published private(set) var closedLidDisplayError: String?
     @Published private(set) var closedLidLockError: String?
+    @Published private(set) var screenLockAccessibilityTrusted = true
     @Published private(set) var isChangingClosedLidMode = false
+
+    private static let closedLidModeChangeTimeoutMessage =
+        "Lid Awake Helper did not respond. Repair the helper, then try again."
 
     private let settingsStore: UserSettingsStoring
     private let closedLidOwnershipStore: ClosedLidOwnershipStoring
@@ -61,6 +66,8 @@ final class AppModel: ObservableObject {
     private let loginItemService: LoginItemServicing
     private let closedLidStatusReader: ClosedLidStatusReading
     private let closedLidHelperService: ClosedLidHelperServicing
+    private let screenLockPermissionChecker: ScreenLockPermissionChecking
+    private let closedLidModeChangeTimeout: TimeInterval
     private let logger = Logger(subsystem: "com.thuongtin.LidAwake", category: "app")
     private let powerController: PowerAssertionControlling
     private let coordinator: WakePolicyCoordinator
@@ -72,6 +79,7 @@ final class AppModel: ObservableObject {
     private var closedLidSideEffectsTimer: Timer?
     private var closedLidOwnershipRecord: ClosedLidOwnershipRecord?
     private var suppressedClosedLidTarget: Bool?
+    private var closedLidModeChangeID: UUID?
 
     private var appEnabledClosedLidMode: Bool {
         closedLidOwnershipRecord?.ownedByThisApp == true
@@ -86,11 +94,13 @@ final class AppModel: ObservableObject {
             loginItemService: LoginItemService(),
             closedLidStatusReader: PMSetService(),
             closedLidHelperService: ClosedLidHelperService(),
+            screenLockPermissionChecker: SystemScreenLockPermissionChecker(),
             powerController: powerController,
             clock: SystemClock(),
             closedLidDisplayCoordinator: ClosedLidDisplayCoordinator(
                 clamshellStateReader: IOKitClamshellStateReader(),
-                displaySleeper: PMSetDisplaySleepService()
+                displaySleeper: PMSetDisplaySleepService(),
+                screenLockStateReader: CGSessionScreenLockStateReader()
             ),
             closedLidLockCoordinator: ClosedLidLockCoordinator(
                 clamshellStateReader: IOKitClamshellStateReader(),
@@ -110,12 +120,14 @@ final class AppModel: ObservableObject {
         loginItemService: LoginItemServicing,
         closedLidStatusReader: ClosedLidStatusReading,
         closedLidHelperService: ClosedLidHelperServicing,
+        screenLockPermissionChecker: ScreenLockPermissionChecking,
         powerController: PowerAssertionControlling,
         clock: Clock,
         closedLidDisplayCoordinator: ClosedLidDisplayCoordinator,
         closedLidLockCoordinator: ClosedLidLockCoordinator,
         notificationService: NotificationServicing,
-        initialBattery: BatteryState
+        initialBattery: BatteryState,
+        closedLidModeChangeTimeout: TimeInterval = 6
     ) {
         self.settingsStore = settingsStore
         self.closedLidOwnershipStore = closedLidOwnershipStore
@@ -123,6 +135,8 @@ final class AppModel: ObservableObject {
         self.loginItemService = loginItemService
         self.closedLidStatusReader = closedLidStatusReader
         self.closedLidHelperService = closedLidHelperService
+        self.screenLockPermissionChecker = screenLockPermissionChecker
+        self.closedLidModeChangeTimeout = closedLidModeChangeTimeout
         self.powerController = powerController
         self.coordinator = WakePolicyCoordinator(
             powerController: powerController,
@@ -142,6 +156,7 @@ final class AppModel: ObservableObject {
         syncClosedLidHelperStatus()
         syncClosedLidStatus()
         evaluate()
+        requestScreenLockAccessibilityPermissionIfNeeded()
         guard scheduleTimers else {
             return
         }
@@ -165,11 +180,51 @@ final class AppModel: ObservableObject {
     }
 
     var closedLidControlNeedsAttention: Bool {
-        closedLidHelperStatus.needsPermissionPrompt
+        closedLidHelperStatus.needsPermissionPrompt || closedLidError != nil
+    }
+
+    var screenLockPermissionNeedsAttention: Bool {
+        settings.enabled
+            && settings.lockScreenWhenLidCloses
+            && screenLockPermissionChecker.requiresAccessibilityPermission
+            && !screenLockAccessibilityTrusted
+    }
+
+    var screenLockPermissionIsRelevant: Bool {
+        settings.lockScreenWhenLidCloses
+            && screenLockPermissionChecker.requiresAccessibilityPermission
+    }
+
+    var screenLockPermissionStatusText: String {
+        guard screenLockPermissionChecker.requiresAccessibilityPermission else {
+            return "Not needed"
+        }
+
+        return screenLockAccessibilityTrusted ? "Allowed" : "Needs approval"
+    }
+
+    var screenLockPermissionTitle: String {
+        "Allow Accessibility for Lock Screen"
+    }
+
+    var screenLockPermissionMessage: String {
+        "Lock-on-close uses the main Lid Awake app to send the system Lock Screen shortcut on this macOS build."
+    }
+
+    var screenLockPermissionCompactMessage: String {
+        "Allow the current Lid Awake app in Accessibility to use lock-on-close."
     }
 
     var closedLidAttentionTitle: String {
-        switch closedLidHelperStatus {
+        if shouldOfferClosedLidHelperRepair {
+            return "Repair Advanced Helper"
+        }
+
+        if closedLidError != nil {
+            return "Closed-lid playback is blocked"
+        }
+
+        return switch closedLidHelperStatus {
         case .enabled:
             "Closed-lid control is ready"
         case .requiresApproval:
@@ -184,7 +239,11 @@ final class AppModel: ObservableObject {
     }
 
     var closedLidAttentionMessage: String {
-        switch closedLidHelperStatus {
+        if let closedLidError {
+            return closedLidError
+        }
+
+        return switch closedLidHelperStatus {
         case .enabled:
             "Lid Awake can control closed-lid mode."
         case .requiresApproval:
@@ -199,7 +258,11 @@ final class AppModel: ObservableObject {
     }
 
     var closedLidMenuAttentionMessage: String {
-        switch closedLidHelperStatus {
+        if let closedLidError {
+            return closedLidError
+        }
+
+        return switch closedLidHelperStatus {
         case .enabled:
             "Closed-lid control is ready."
         case .requiresApproval:
@@ -214,7 +277,11 @@ final class AppModel: ObservableObject {
     }
 
     var closedLidCompactActionTitle: String {
-        switch closedLidHelperStatus {
+        if shouldOfferClosedLidHelperRepair {
+            return "Repair"
+        }
+
+        return switch closedLidHelperStatus {
         case .requiresApproval:
             "Approve"
         case .enabled, .notRegistered, .notFound, .unavailable(_):
@@ -223,12 +290,21 @@ final class AppModel: ObservableObject {
     }
 
     var closedLidPrimaryActionTitle: String {
-        switch closedLidHelperStatus {
+        if shouldOfferClosedLidHelperRepair {
+            return "Repair Helper"
+        }
+
+        return switch closedLidHelperStatus {
         case .requiresApproval:
             "Open System Settings"
         case .enabled, .notRegistered, .notFound, .unavailable(_):
             "Set Up Helper"
         }
+    }
+
+    var shouldOfferClosedLidHelperRepair: Bool {
+        closedLidHelperStatus == .enabled
+            && closedLidError == Self.closedLidModeChangeTimeoutMessage
     }
 
     func refreshClosedLidPermissionState() {
@@ -238,7 +314,9 @@ final class AppModel: ObservableObject {
 
     func refreshAfterExternalPermissionChange() {
         refreshClosedLidPermissionState()
+        refreshScreenLockAccessibilityState(prompt: false)
         evaluate()
+        refreshScreenLockAccessibilityState(prompt: false)
     }
 
     func stop() {
@@ -257,6 +335,7 @@ final class AppModel: ObservableObject {
         settings = nextSettings
         settingsStore.save(nextSettings)
         evaluate()
+        requestScreenLockAccessibilityPermissionIfNeeded()
     }
 
     func updateLaunchAtLogin(_ enabled: Bool) {
@@ -283,6 +362,11 @@ final class AppModel: ObservableObject {
     }
 
     func setupClosedLidHelper() {
+        if shouldOfferClosedLidHelperRepair {
+            repairClosedLidHelper()
+            return
+        }
+
         do {
             try closedLidHelperService.register()
             syncClosedLidHelperStatus()
@@ -306,15 +390,60 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func requestClosedLidPermission() {
+    func repairClosedLidHelper() {
+        isChangingClosedLidMode = false
+        closedLidModeChangeID = nil
+
+        do {
+            try closedLidHelperService.repairRegistration()
+            syncClosedLidHelperStatus()
+            suppressedClosedLidTarget = nil
+            switch closedLidHelperStatus {
+            case .enabled:
+                closedLidError = nil
+                evaluate()
+            case .requiresApproval:
+                closedLidError = "Approve Lid Awake Helper in System Settings, then return here."
+                closedLidHelperService.openApprovalSettings()
+            case .notRegistered:
+                closedLidError = "Helper is not registered yet."
+            case .notFound:
+                closedLidError = "Helper is missing from the app bundle."
+            case let .unavailable(message):
+                closedLidError = message
+            }
+        } catch {
+            syncClosedLidHelperStatus()
+            closedLidError = "Repairing Lid Awake Helper failed: \(closedLidSetupError(from: error))"
+        }
+    }
+
+    func performClosedLidHelperAction() {
+        if shouldOfferClosedLidHelperRepair {
+            repairClosedLidHelper()
+            return
+        }
+
         setupClosedLidHelper()
+    }
+
+    func requestClosedLidPermission() {
+        performClosedLidHelperAction()
     }
 
     func openClosedLidApprovalSettings() {
         closedLidHelperService.openApprovalSettings()
     }
 
+    func openScreenLockAccessibilitySettings() {
+        refreshScreenLockAccessibilityState(prompt: true)
+        screenLockPermissionChecker.openAccessibilitySettings()
+    }
+
     func removeClosedLidHelper() {
+        isChangingClosedLidMode = false
+        closedLidModeChangeID = nil
+
         do {
             try closedLidHelperService.unregister()
             syncClosedLidHelperStatus()
@@ -518,13 +647,25 @@ final class AppModel: ObservableObject {
     }
 
     private func setClosedLidMode(enabled: Bool, previousStatus: ClosedLidStatus) {
+        let changeID = UUID()
+        closedLidModeChangeID = changeID
         isChangingClosedLidMode = true
         closedLidError = nil
+        scheduleClosedLidModeChangeTimeout(
+            changeID: changeID,
+            enabled: enabled,
+            previousStatus: previousStatus
+        )
 
         closedLidHelperService.setClosedLidMode(enabled: enabled) { [weak self] result in
             DispatchQueue.main.async {
-                let status = self?.closedLidStatusReader.readClosedLidStatus() ?? .notReported
-                self?.finishClosedLidModeChange(
+                guard let self else {
+                    return
+                }
+
+                let status = self.closedLidStatusReader.readClosedLidStatus()
+                self.finishClosedLidModeChange(
+                    changeID: changeID,
                     enabled: enabled,
                     result: result,
                     previousStatus: previousStatus,
@@ -534,12 +675,37 @@ final class AppModel: ObservableObject {
         }
     }
 
+    private func scheduleClosedLidModeChangeTimeout(
+        changeID: UUID,
+        enabled: Bool,
+        previousStatus: ClosedLidStatus
+    ) {
+        let timeout = closedLidModeChangeTimeout
+        guard timeout > 0 else {
+            return
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + timeout) { [weak self] in
+            self?.finishClosedLidModeChangeTimeout(
+                changeID: changeID,
+                enabled: enabled,
+                previousStatus: previousStatus
+            )
+        }
+    }
+
     private func finishClosedLidModeChange(
+        changeID: UUID,
         enabled: Bool,
         result: Result<Void, Error>,
         previousStatus: ClosedLidStatus,
         status: ClosedLidStatus
     ) {
+        guard closedLidModeChangeID == changeID else {
+            return
+        }
+
+        closedLidModeChangeID = nil
         isChangingClosedLidMode = false
         closedLidStatus = status
 
@@ -563,9 +729,79 @@ final class AppModel: ObservableObject {
         reconcileClosedLidSideEffects()
     }
 
+    private func finishClosedLidModeChangeTimeout(
+        changeID: UUID,
+        enabled: Bool,
+        previousStatus: ClosedLidStatus
+    ) {
+        guard closedLidModeChangeID == changeID else {
+            return
+        }
+
+        let status = closedLidStatusReader.readClosedLidStatus()
+        if status == (enabled ? .enabled : .disabled) {
+            finishClosedLidModeChange(
+                changeID: changeID,
+                enabled: enabled,
+                result: .success(()),
+                previousStatus: previousStatus,
+                status: status
+            )
+            return
+        }
+
+        closedLidModeChangeID = nil
+        isChangingClosedLidMode = false
+        syncClosedLidHelperStatus()
+        closedLidStatus = status
+        suppressedClosedLidTarget = enabled
+        closedLidError = Self.closedLidModeChangeTimeoutMessage
+        logger.error("closed-lid helper update timed out enabled=\(enabled)")
+        reconcileClosedLidSideEffects()
+    }
+
     private func reconcileClosedLidSideEffects() {
+        refreshScreenLockAccessibilityState(prompt: false)
         reconcileClosedLidLock()
         reconcileClosedLidDisplay()
+    }
+
+    private func requestScreenLockAccessibilityPermissionIfNeeded() {
+        guard settings.enabled, settings.lockScreenWhenLidCloses else {
+            return
+        }
+        guard screenLockPermissionChecker.requiresAccessibilityPermission else {
+            clearScreenLockAccessibilityErrorIfNeeded()
+            return
+        }
+        refreshScreenLockAccessibilityState(prompt: true)
+    }
+
+    private func refreshScreenLockAccessibilityState(prompt: Bool) {
+        guard settings.enabled, settings.lockScreenWhenLidCloses else {
+            screenLockAccessibilityTrusted = true
+            return
+        }
+        guard screenLockPermissionChecker.requiresAccessibilityPermission else {
+            screenLockAccessibilityTrusted = true
+            clearScreenLockAccessibilityErrorIfNeeded()
+            return
+        }
+
+        let trusted = screenLockPermissionChecker.hasAccessibilityPermission(prompt: prompt)
+        screenLockAccessibilityTrusted = trusted
+
+        if trusted {
+            clearScreenLockAccessibilityErrorIfNeeded()
+        }
+    }
+
+    private func clearScreenLockAccessibilityErrorIfNeeded() {
+        guard closedLidLockError == ScreenLockError.accessibilityPermissionMessage else {
+            return
+        }
+        closedLidLockError = nil
+        closedLidLockCoordinator.reset()
     }
 
     private func reconcileClosedLidLock() {

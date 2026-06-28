@@ -32,6 +32,9 @@ struct SettingsView: View {
                 if model.closedLidControlNeedsAttention {
                     ClosedLidSettingsWarning(model: model)
                 }
+                if model.screenLockPermissionNeedsAttention {
+                    ScreenLockPermissionSettingsWarning(model: model)
+                }
 
                 switch selection ?? .general {
                 case .general:
@@ -220,6 +223,26 @@ struct SettingsView: View {
                         isOn: boolBinding(\.lockScreenWhenLidCloses)
                     )
 
+                    if model.screenLockPermissionIsRelevant {
+                        Divider()
+
+                        InfoLine(
+                            title: "Screen lock permission",
+                            value: model.screenLockPermissionStatusText,
+                            systemImage: "accessibility"
+                        )
+
+                        HStack(spacing: 10) {
+                            SmoothButton("Open Accessibility", systemImage: "accessibility") {
+                                model.openScreenLockAccessibilitySettings()
+                            }
+
+                            SmoothButton("Check Permission", systemImage: "arrow.clockwise") {
+                                model.refreshAfterExternalPermissionChange()
+                            }
+                        }
+                    }
+
                     Divider()
 
                     InfoLine(
@@ -235,10 +258,10 @@ struct SettingsView: View {
                     )
 
                     HStack(spacing: 10) {
-                        SmoothButton("Set Up", systemImage: "lock.shield") {
-                            model.setupClosedLidHelper()
+                        SmoothButton(model.closedLidPrimaryActionTitle, systemImage: "lock.shield") {
+                            model.performClosedLidHelperAction()
                         }
-                        .disabled(model.closedLidHelperStatus == .enabled)
+                        .disabled(model.closedLidHelperStatus == .enabled && !model.shouldOfferClosedLidHelperRepair)
 
                         SmoothButton("Remove", systemImage: "trash") {
                             model.removeClosedLidHelper()
@@ -539,6 +562,67 @@ private struct ClosedLidSettingsWarning: View {
         .overlay {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .stroke(Color(red: 0.95, green: 0.48, blue: 0.10), lineWidth: 1)
+        }
+        .shadow(color: .black.opacity(0.14), radius: 10, y: 4)
+    }
+}
+
+private struct ScreenLockPermissionSettingsWarning: View {
+    @ObservedObject var model: AppModel
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 14) {
+            Image(systemName: "accessibility")
+                .font(.system(size: 24, weight: .semibold))
+                .foregroundStyle(Color(red: 0.44, green: 0.75, blue: 1.0))
+                .frame(width: 48, height: 48)
+                .background(Color(red: 0.04, green: 0.14, blue: 0.28), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text(model.screenLockPermissionTitle)
+                    .font(.headline.weight(.semibold))
+                    .foregroundStyle(.white)
+
+                Text(model.screenLockPermissionMessage)
+                    .font(.callout)
+                    .foregroundStyle(.white.opacity(0.84))
+                    .fixedSize(horizontal: false, vertical: true)
+
+                HStack(spacing: 10) {
+                    Button {
+                        model.openScreenLockAccessibilitySettings()
+                    } label: {
+                        Label("Open Accessibility", systemImage: "accessibility")
+                            .font(.callout.weight(.semibold))
+                            .foregroundStyle(.black)
+                            .padding(.horizontal, 12)
+                            .frame(height: 34)
+                            .background(Color(red: 0.56, green: 0.78, blue: 1.0), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+
+                    Button {
+                        model.refreshAfterExternalPermissionChange()
+                    } label: {
+                        Label("Check Permission", systemImage: "arrow.clockwise")
+                            .font(.callout.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 12)
+                            .frame(height: 34)
+                            .background(.white.opacity(0.16), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(.top, 2)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(16)
+        .background(Color(red: 0.03, green: 0.08, blue: 0.16), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(Color(red: 0.28, green: 0.60, blue: 1.0), lineWidth: 1)
         }
         .shadow(color: .black.opacity(0.14), radius: 10, y: 4)
     }

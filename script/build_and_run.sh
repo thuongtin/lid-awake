@@ -6,6 +6,7 @@ APP_NAME="LidAwake"
 APP_DISPLAY_NAME="Lid Awake"
 # Previous pre-release process name kept temporarily for local cleanup.
 LEGACY_APP_NAME="AgentAwake"
+HELPER_NAME="LidAwakeHelper"
 BUNDLE_ID="com.thuongtin.LidAwake"
 ASSERTION_REASON="Lid Awake keeping Mac awake"
 
@@ -22,9 +23,12 @@ kill_existing_app() {
   /usr/bin/osascript -e "tell application \"$LEGACY_APP_NAME\" to quit" >/dev/null 2>&1 || true
   pkill -x "$APP_NAME" >/dev/null 2>&1 || true
   pkill -x "$LEGACY_APP_NAME" >/dev/null 2>&1 || true
+  pkill -u "$(id -u)" -x "$HELPER_NAME" >/dev/null 2>&1 || true
 
   for _ in 1 2 3 4 5; do
-    if ! pgrep -x "$APP_NAME" >/dev/null 2>&1 && ! pgrep -x "$LEGACY_APP_NAME" >/dev/null 2>&1; then
+    if ! pgrep -x "$APP_NAME" >/dev/null 2>&1 \
+      && ! pgrep -x "$LEGACY_APP_NAME" >/dev/null 2>&1 \
+      && ! pgrep -u "$(id -u)" -x "$HELPER_NAME" >/dev/null 2>&1; then
       return 0
     fi
     sleep 0.2
@@ -32,6 +36,7 @@ kill_existing_app() {
 
   pkill -9 -x "$APP_NAME" >/dev/null 2>&1 || true
   pkill -9 -x "$LEGACY_APP_NAME" >/dev/null 2>&1 || true
+  pkill -9 -u "$(id -u)" -x "$HELPER_NAME" >/dev/null 2>&1 || true
 }
 
 open_app() {
