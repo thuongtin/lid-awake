@@ -96,6 +96,76 @@ final class AppModelLifecycleTests: XCTestCase {
         XCTAssertNil(harness.model.closedLidError)
     }
 
+    func testRemoveHelperRestoresOwnedClosedLidModeBeforeUnregistering() async {
+        let harness = AppModelHarness(
+            settings: UserSettings(enabled: true),
+            helperStatus: .enabled,
+            closedLidStatus: .disabled
+        )
+        harness.helper.onSetClosedLidMode = { enabled in
+            harness.closedLidStatusReader.status = enabled ? .enabled : .disabled
+        }
+
+        harness.model.start(scheduleTimers: false)
+        await drainMainQueue()
+        XCTAssertEqual(harness.helper.setClosedLidModeRequests, [true])
+        XCTAssertNotNil(harness.ownershipStore.record)
+
+        harness.model.removeClosedLidHelper()
+        await drainMainQueue()
+
+        XCTAssertEqual(harness.helper.setClosedLidModeRequests, [true, false])
+        XCTAssertEqual(harness.helper.unregisterCallCount, 1)
+        XCTAssertEqual(harness.model.closedLidStatus, .disabled)
+        XCTAssertNil(harness.ownershipStore.record)
+        XCTAssertNil(harness.model.closedLidError)
+    }
+
+    func testRemoveHelperKeepsHelperWhenRestoreFails() async {
+        let harness = AppModelHarness(
+            settings: UserSettings(enabled: true),
+            helperStatus: .enabled,
+            closedLidStatus: .disabled
+        )
+        harness.helper.onSetClosedLidMode = { enabled in
+            harness.closedLidStatusReader.status = enabled ? .enabled : .disabled
+        }
+
+        harness.model.start(scheduleTimers: false)
+        await drainMainQueue()
+        XCTAssertNotNil(harness.ownershipStore.record)
+
+        harness.helper.onSetClosedLidMode = nil
+        harness.helper.setClosedLidModeResult = .failure(NSError(domain: "Restore", code: 1))
+        harness.model.removeClosedLidHelper()
+        await drainMainQueue()
+
+        XCTAssertEqual(harness.helper.setClosedLidModeRequests, [true, false])
+        XCTAssertEqual(harness.helper.unregisterCallCount, 0)
+        XCTAssertEqual(harness.model.closedLidStatus, .enabled)
+        XCTAssertNotNil(harness.ownershipStore.record)
+        XCTAssertTrue(harness.model.closedLidError?.contains("Could not restore closed-lid mode") == true)
+    }
+
+    func testRemoveHelperUnregistersDirectlyWithoutOwnership() async {
+        let harness = AppModelHarness(
+            settings: UserSettings(enabled: false),
+            helperStatus: .enabled,
+            closedLidStatus: .disabled
+        )
+
+        harness.model.start(scheduleTimers: false)
+        await drainMainQueue()
+        XCTAssertNil(harness.ownershipStore.record)
+
+        harness.model.removeClosedLidHelper()
+        await drainMainQueue()
+
+        XCTAssertTrue(harness.helper.setClosedLidModeRequests.isEmpty)
+        XCTAssertEqual(harness.helper.unregisterCallCount, 1)
+        XCTAssertNil(harness.model.closedLidError)
+    }
+
     func testStartupRestoreAttemptsCleanupWhenPersistedOwnershipExists() async {
         let harness = AppModelHarness(
             settings: UserSettings(enabled: false),
@@ -275,6 +345,33 @@ final class AppModelLifecycleTests: XCTestCase {
         XCTAssertEqual(harness.screenLockPermissionChecker.openAccessibilitySettingsCallCount, 1)
         XCTAssertEqual(harness.screenLockPermissionChecker.promptRequests, [false, true, true])
     }
+
+    func testDisplaySleepProceedsAfterLockFailure() async {
+        let harness = AppModelHarness(
+            settings: UserSettings(
+                enabled: true,
+                lockScreenWhenLidCloses: true
+            ),
+            helperStatus: .enabled,
+            closedLidStatus: .enabled
+        )
+        harness.lockClamshellReader.state = .closed
+        harness.displayClamshellReader.state = .closed
+        harness.displayScreenLockStateReader.state = .unlocked
+        harness.deviceLocker.error = ScreenLockError.accessibilityPermissionRequired
+        harness.screenLockPermissionChecker.requiresAccessibilityPermission = true
+        harness.screenLockPermissionChecker.hasPermission = false
+
+        harness.model.start(scheduleTimers: false)
+        await drainMainQueue()
+
+        XCTAssertEqual(
+            harness.model.closedLidLockError,
+            ScreenLockError.accessibilityPermissionMessage
+        )
+        XCTAssertEqual(harness.displaySleeper.sleepCount, 1)
+        XCTAssertNil(harness.model.closedLidDisplayError)
+    }
 }
 
 private final class AppModelHarness {
@@ -289,6 +386,7 @@ private final class AppModelHarness {
     let notificationService: FakeNotificationService
     let displayClamshellReader = FakeClamshellStateReader()
     let lockClamshellReader = FakeClamshellStateReader()
+    let displayScreenLockStateReader = FakeScreenLockStateReader()
     let displaySleeper = FakeDisplaySleeper()
     let deviceLocker = FakeDeviceLocker()
     let model: AppModel
@@ -318,7 +416,8 @@ private final class AppModelHarness {
             clock: FakeClock(),
             closedLidDisplayCoordinator: ClosedLidDisplayCoordinator(
                 clamshellStateReader: displayClamshellReader,
-                displaySleeper: displaySleeper
+                displaySleeper: displaySleeper,
+                screenLockStateReader: displayScreenLockStateReader
             ),
             closedLidLockCoordinator: ClosedLidLockCoordinator(
                 clamshellStateReader: lockClamshellReader,
@@ -476,7 +575,19 @@ private final class FakeClamshellStateReader: ClamshellStateReading {
 }
 
 private final class FakeDisplaySleeper: DisplaySleeping {
-    func sleepDisplaysNow() throws {}
+    private(set) var sleepCount = 0
+
+    func sleepDisplaysNow() throws {
+        sleepCount += 1
+    }
+}
+
+private final class FakeScreenLockStateReader: ScreenLockStateReading {
+    var state: ScreenLockState = .unlocked
+
+    func screenLockState() -> ScreenLockState {
+        state
+    }
 }
 
 private final class FakeDeviceLocker: DeviceLocking {

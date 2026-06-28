@@ -85,6 +85,8 @@ com.thuongtin.LidAwake
 com.thuongtin.LidAwake.Helper
 ```
 
+For helper XPC authorization, the main app must also be signed with the same Team ID as the helper. A process that only reuses `com.thuongtin.LidAwake` without the matching Team ID is rejected by the helper.
+
 ## Local QA Checklist
 
 1. Run `./scripts/check.sh`.

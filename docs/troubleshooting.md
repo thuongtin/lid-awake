@@ -100,6 +100,8 @@ pmset -g | rg 'SleepDisabled|disablesleep' || true
 
 If helper approval is missing, the app should show a warning and avoid pretending that closed-lid mode is ready.
 
+If you remove Lid Awake Helper while Lid Awake owns closed-lid mode, the app first restores normal closed-lid behavior and removes the helper only after restore succeeds. If restore fails, the helper remains registered so cleanup can be retried.
+
 ## Display Turns Off Or Stays On Unexpectedly
 
 The lid-close display mode has two separate effects:
@@ -108,6 +110,8 @@ The lid-close display mode has two separate effects:
 - `Turn display off`: the app keeps system wake behavior through the helper but does not hold display sleep, and it requests display sleep during a short retry window when the lid closes.
 
 macOS and hardware policy can still affect final display behavior. On multi-monitor setups, macOS may briefly reconfigure displays after the lid closes, so Lid Awake retries display sleep for the first closed-lid transition ticks. If lock-on-close is enabled too, Lid Awake waits until macOS reports the session is locked before sending display sleep.
+
+If the lock request fails, Lid Awake keeps the screen lock error visible but still lets the `Turn display off` path request display sleep. This avoids leaving the display awake forever when Accessibility or the system lock path blocks the lock request.
 
 ## Lock On Lid Close Does Not Trigger
 

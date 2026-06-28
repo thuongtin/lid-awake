@@ -444,6 +444,57 @@ final class AppModel: ObservableObject {
         isChangingClosedLidMode = false
         closedLidModeChangeID = nil
 
+        syncClosedLidHelperStatus()
+        syncClosedLidStatus()
+
+        if appEnabledClosedLidMode, closedLidStatus == .enabled {
+            restoreClosedLidModeBeforeRemovingHelper()
+            return
+        }
+
+        if appEnabledClosedLidMode, closedLidStatus != .enabled {
+            saveClosedLidOwnershipRecord(nil)
+        }
+
+        unregisterClosedLidHelper()
+    }
+
+    private func restoreClosedLidModeBeforeRemovingHelper() {
+        guard closedLidHelperStatus.canControlClosedLidMode else {
+            closedLidError = "Closed-lid mode must be restored before removing the helper, but Advanced Helper is not ready."
+            return
+        }
+
+        isChangingClosedLidMode = true
+        closedLidError = nil
+
+        closedLidHelperService.setClosedLidMode(enabled: false) { [weak self] result in
+            DispatchQueue.main.async {
+                self?.finishClosedLidRestoreBeforeHelperRemoval(result: result)
+            }
+        }
+    }
+
+    private func finishClosedLidRestoreBeforeHelperRemoval(result: Result<Void, Error>) {
+        isChangingClosedLidMode = false
+        syncClosedLidStatus()
+
+        switch result {
+        case .success:
+            guard closedLidStatus != .enabled else {
+                closedLidError = "Closed-lid mode is still enabled, so Lid Awake Helper was not removed."
+                return
+            }
+
+            saveClosedLidOwnershipRecord(nil)
+            suppressedClosedLidTarget = nil
+            unregisterClosedLidHelper()
+        case let .failure(error):
+            closedLidError = "Could not restore closed-lid mode before removing helper: \(closedLidUserFacingError(from: error))"
+        }
+    }
+
+    private func unregisterClosedLidHelper() {
         do {
             try closedLidHelperService.unregister()
             syncClosedLidHelperStatus()
@@ -827,7 +878,8 @@ final class AppModel: ObservableObject {
         let action = closedLidDisplayCoordinator.update(
             settings: settings,
             wakeStatus: status,
-            closedLidStatus: closedLidStatus
+            closedLidStatus: closedLidStatus,
+            waitForScreenLockBeforeDisplaySleep: closedLidLockError == nil
         )
 
         switch action {

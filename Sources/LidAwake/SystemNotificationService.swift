@@ -44,7 +44,7 @@ final class SystemNotificationService {
         content.sound = .default
 
         let request = UNNotificationRequest(
-            identifier: "agentawake.\(event)",
+            identifier: "lidawake.\(event)",
             content: content,
             trigger: nil
         )

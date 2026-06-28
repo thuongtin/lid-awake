@@ -28,7 +28,7 @@ Advanced helper label: `com.thuongtin.LidAwake.Helper`.
 
 ## Helper Trust Boundary
 
-The privileged helper accepts XPC clients only when macOS code signing information identifies the client as the bundled `Lid Awake` app with identifier `com.thuongtin.LidAwake`. The helper rejects unauthorized local clients before exporting its XPC object or resuming the connection.
+The privileged helper accepts XPC clients only when macOS code signing information identifies the client as the bundled `Lid Awake` app with identifier `com.thuongtin.LidAwake` and a Team ID matching the helper build. The helper rejects unauthorized local clients before exporting its XPC object or resuming the connection.
 
 The helper exposes only two operations: read the closed-lid power status and set closed-lid mode through the approved `pmset -a disablesleep` command path.
 
@@ -41,6 +41,8 @@ On launch, the app reloads that ownership record, syncs helper status, reads the
 If helper approval is missing or the helper is not ready, the app keeps the ownership record and shows a restore warning instead of pretending cleanup succeeded. The user should approve or set up Lid Awake Helper in System Settings, then refresh the app so it can retry restore.
 
 The app does not disable a closed-lid mode it did not enable. If macOS already reported closed-lid mode as enabled before Lid Awake asked for a change, that system state is shown but not claimed as app ownership.
+
+When the user removes Lid Awake Helper while this app owns closed-lid mode, Lid Awake restores closed-lid mode first and unregisters the helper only after restore succeeds. If restore fails, the helper stays registered so the app can retry cleanup.
 
 ## Safety Defaults
 

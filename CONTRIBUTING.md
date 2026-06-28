@@ -54,6 +54,8 @@ Create a local release archive and checksum:
 
 Release archives are written to `dist/releases`. See `docs/releasing.md` before publishing because public releases require Developer ID signing and notarization.
 
+The release package script requires `Developer ID Application` signing by default. Use `ALLOW_NON_DEVELOPER_ID_RELEASE=1 ./script/package_release.sh` only when checking local archive mechanics without publishing the result.
+
 Settings window activation uses AppKit and should be checked manually after UI changes: open the menu bar settings, confirm the app becomes active, close the window, and confirm the app returns to accessory behavior.
 
 ## Pull Requests

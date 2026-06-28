@@ -77,7 +77,9 @@ Create a local release archive:
 ./script/package_release.sh
 ```
 
-Archives are written to `dist/releases` with a `.sha256` checksum. Local archives use ad-hoc signing unless `SIGNING_IDENTITY` is set, so read [Releasing](docs/releasing.md) before publishing a public build.
+Archives are written to `dist/releases` with a `.sha256` checksum. Public release packaging requires Developer ID signing by default, so read [Releasing](docs/releasing.md) before publishing a public build.
+
+`./script/package_release.sh` is a public release gate by default and requires a `Developer ID Application` signing identity. For local archive testing only, run it with `ALLOW_NON_DEVELOPER_ID_RELEASE=1`.
 
 ## Documentation
 

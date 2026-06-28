@@ -53,7 +53,8 @@ public final class ClosedLidDisplayCoordinator {
     public func update(
         settings: UserSettings,
         wakeStatus: WakeStatus,
-        closedLidStatus: ClosedLidStatus
+        closedLidStatus: ClosedLidStatus,
+        waitForScreenLockBeforeDisplaySleep: Bool = true
     ) -> ClosedLidDisplayAction {
         let clamshellState = clamshellStateReader.clamshellState()
         guard clamshellState == .closed else {
@@ -76,9 +77,13 @@ public final class ClosedLidDisplayCoordinator {
             return .none
         }
 
-        if settings.lockScreenWhenLidCloses,
-           screenLockStateReader?.screenLockState() != .locked {
-            return .none
+        if settings.lockScreenWhenLidCloses, waitForScreenLockBeforeDisplaySleep {
+            switch screenLockStateReader?.screenLockState() {
+            case .locked, .unavailable, nil:
+                break
+            case .unlocked:
+                return .none
+            }
         }
 
         guard displaySleepRequestCount < maximumDisplaySleepRequests else {

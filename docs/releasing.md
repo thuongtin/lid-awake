@@ -1,10 +1,10 @@
 # Releasing Lid Awake
 
-This project can create local archives without Apple Developer secrets. Public releases require Developer ID signing and notarization outside the repository.
+This project can create local test archives without Apple Developer secrets, but the default public release command requires Developer ID signing. Public releases also require notarization outside the repository.
 
 ## Local Archive
 
-Create a release configuration app bundle, zip archive, and checksum:
+Create a release configuration app bundle, zip archive, and checksum for a public release:
 
 ```bash
 ./script/package_release.sh
@@ -12,11 +12,19 @@ Create a release configuration app bundle, zip archive, and checksum:
 
 The archive is written to `dist/releases/LidAwake-<version>-macos.zip` with a matching `.sha256` file. The version comes from `CFBundleShortVersionString` in the staged app `Info.plist`.
 
-By default, staging uses the first available `Developer ID Application` or `Apple Development` code signing identity. If none is available, it falls back to ad-hoc signing. An ad-hoc archive is useful for packaging checks, but the advanced LaunchDaemon helper will not run from an ad-hoc signed bundle and the archive should not be uploaded as a final public download.
+By default, `package_release.sh` requires a `Developer ID Application` signing identity and fails before packaging if it cannot find one. This prevents accidentally uploading Apple Development or ad-hoc signed archives as public downloads.
+
+For local archive mechanics only, use the explicit escape hatch:
+
+```bash
+ALLOW_NON_DEVELOPER_ID_RELEASE=1 ./script/package_release.sh
+```
+
+That mode may use Apple Development or ad-hoc signing and should not be uploaded as a final public download. The advanced LaunchDaemon helper will not reliably run from an ad-hoc signed bundle on modern macOS.
 
 ## Signing Identity
 
-For a public release, export a Developer ID signing identity before packaging:
+For a public release, export a Developer ID signing identity before packaging if auto-detection does not select the right one:
 
 ```bash
 export SIGNING_IDENTITY="$DEVELOPER_ID_APPLICATION"
@@ -43,8 +51,8 @@ export APPLE_APP_SPECIFIC_PASSWORD="app-specific-password"
 High-level public release flow:
 
 1. Confirm `./scripts/check.sh` exits 0.
-2. Build and sign with `SIGNING_IDENTITY="$DEVELOPER_ID_APPLICATION" CONFIGURATION=release ./script/stage_app.sh`.
-3. Create the archive with `./script/package_release.sh` or zip the signed staged app with `ditto -c -k --keepParent`.
+2. Create the archive with `SIGNING_IDENTITY="$DEVELOPER_ID_APPLICATION" ./script/package_release.sh`.
+3. Confirm `codesign --verify --deep --strict dist/LidAwake.app` exits 0.
 4. Submit the zip with `xcrun notarytool submit` using `APPLE_ID`, `APPLE_TEAM_ID`, and `APPLE_APP_SPECIFIC_PASSWORD`.
 5. Wait for notarization to succeed.
 6. Staple the ticket to `dist/LidAwake.app` with `xcrun stapler staple`.
