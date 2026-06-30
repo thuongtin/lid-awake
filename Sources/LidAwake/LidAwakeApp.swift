@@ -11,17 +11,9 @@ struct LidAwakeApplication: App {
     }
 
     var body: some Scene {
-        MenuBarExtra {
-            MenuBarContentView(
-                model: appDelegate.model,
-                openSettings: {
-                    appDelegate.openSettings()
-                }
-            )
-        } label: {
-            Label("Lid Awake", systemImage: "bolt.circle")
+        Settings {
+            EmptyView()
         }
-        .menuBarExtraStyle(.window)
     }
 }
 
@@ -29,6 +21,7 @@ struct LidAwakeApplication: App {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let model = AppModel()
     private lazy var settingsWindowPresenter = SettingsWindowPresenter(model: model)
+    private var statusItemController: StatusItemController?
     private let logger = Logger(subsystem: "com.thuongtin.LidAwake", category: "app")
     private var didPresentClosedLidPermissionPrompt = false
 
@@ -36,6 +29,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         logger.info("applicationDidFinishLaunching")
         NSApplication.shared.setActivationPolicy(.accessory)
         model.start()
+        statusItemController = StatusItemController(model: model) { [weak self] in
+            self?.openSettings()
+        }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
             self?.presentClosedLidPermissionPromptIfNeeded()
         }
@@ -43,6 +39,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         logger.info("applicationWillTerminate")
+        statusItemController?.invalidate()
         model.stop()
     }
 
@@ -52,17 +49,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func openSettings() {
         model.refreshAfterExternalPermissionChange()
-        dismissMenuBarExtraWindows()
+        statusItemController?.closePopover()
         settingsWindowPresenter.show()
-        DispatchQueue.main.async { [weak self] in
-            self?.dismissMenuBarExtraWindows()
-        }
-    }
-
-    private func dismissMenuBarExtraWindows() {
-        for window in NSApplication.shared.windows where window.isVisible && window.title != "Settings" {
-            window.orderOut(nil)
-        }
     }
 
     private func presentClosedLidPermissionPromptIfNeeded() {

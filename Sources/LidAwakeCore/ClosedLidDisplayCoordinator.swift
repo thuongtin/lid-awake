@@ -36,6 +36,8 @@ public final class ClosedLidDisplayCoordinator {
     private let screenLockStateReader: ScreenLockStateReading?
     private let maximumDisplaySleepRequests: Int
     private var displaySleepRequestCount = 0
+    private var lastClamshellState: ClamshellState?
+    private var observedClosedTransition = false
 
     public init(
         clamshellStateReader: ClamshellStateReading,
@@ -57,8 +59,30 @@ public final class ClosedLidDisplayCoordinator {
         waitForScreenLockBeforeDisplaySleep: Bool = true
     ) -> ClosedLidDisplayAction {
         let clamshellState = clamshellStateReader.clamshellState()
+        let previousClamshellState = lastClamshellState
+        lastClamshellState = clamshellState
+
         guard clamshellState == .closed else {
             resetClosedLidTransition()
+            return .none
+        }
+
+        guard let previousClamshellState else {
+            observedClosedTransition = false
+            displaySleepRequestCount = maximumDisplaySleepRequests
+            return .none
+        }
+
+        if previousClamshellState == .open {
+            observedClosedTransition = settings.lidClosedDisplayMode == .turnDisplayOff
+            displaySleepRequestCount = 0
+        } else if previousClamshellState != .closed {
+            observedClosedTransition = false
+            displaySleepRequestCount = maximumDisplaySleepRequests
+            return .none
+        }
+
+        guard observedClosedTransition else {
             return .none
         }
 
@@ -68,7 +92,6 @@ public final class ClosedLidDisplayCoordinator {
         }
 
         guard closedLidStatus == .enabled else {
-            resetClosedLidTransition()
             return .none
         }
 
@@ -102,5 +125,6 @@ public final class ClosedLidDisplayCoordinator {
 
     private func resetClosedLidTransition() {
         displaySleepRequestCount = 0
+        observedClosedTransition = false
     }
 }

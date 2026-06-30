@@ -15,6 +15,7 @@ public final class ClosedLidLockCoordinator {
     private let deviceLocker: DeviceLocking
     private let maximumLockRequests: Int
     private var lockRequestCount = 0
+    private var lastClamshellState: ClamshellState?
 
     public init(
         clamshellStateReader: ClamshellStateReading,
@@ -29,13 +30,28 @@ public final class ClosedLidLockCoordinator {
     @discardableResult
     public func update(settings: UserSettings) -> ClosedLidLockAction {
         let clamshellState = clamshellStateReader.clamshellState()
+        let previousClamshellState = lastClamshellState
+        lastClamshellState = clamshellState
+
         guard clamshellState == .closed else {
             lockRequestCount = 0
             return .none
         }
 
         guard settings.enabled, settings.lockScreenWhenLidCloses else {
+            lockRequestCount = maximumLockRequests
+            return .none
+        }
+
+        guard let previousClamshellState else {
+            lockRequestCount = maximumLockRequests
+            return .none
+        }
+
+        if previousClamshellState == .open {
             lockRequestCount = 0
+        } else if previousClamshellState != .closed {
+            lockRequestCount = maximumLockRequests
             return .none
         }
 
@@ -54,6 +70,6 @@ public final class ClosedLidLockCoordinator {
     }
 
     public func reset() {
-        lockRequestCount = 0
+        lockRequestCount = maximumLockRequests
     }
 }

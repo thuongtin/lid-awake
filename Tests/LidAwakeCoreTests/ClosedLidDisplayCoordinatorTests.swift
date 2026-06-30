@@ -2,7 +2,7 @@ import LidAwakeCore
 import XCTest
 
 final class ClosedLidDisplayCoordinatorTests: XCTestCase {
-    func testRequestsDisplaySleepWhenClosedLidModeTurnsDisplayOff() {
+    func testDoesNotRequestDisplaySleepWhenFirstObservedStateIsAlreadyClosed() {
         let clamshellStateReader = FakeClamshellStateReader(state: .closed)
         let displaySleeper = FakeDisplaySleeper()
         let coordinator = ClosedLidDisplayCoordinator(
@@ -12,18 +12,78 @@ final class ClosedLidDisplayCoordinatorTests: XCTestCase {
         var settings = UserSettings.defaults
         settings.lidClosedDisplayMode = .turnDisplayOff
 
-        let action = coordinator.update(
+        let firstAction = coordinator.update(
+            settings: settings,
+            wakeStatus: holdingStatus(),
+            closedLidStatus: .enabled
+        )
+        let secondAction = coordinator.update(
             settings: settings,
             wakeStatus: holdingStatus(),
             closedLidStatus: .enabled
         )
 
-        XCTAssertEqual(action, .requestedDisplaySleep)
+        XCTAssertEqual(firstAction, .none)
+        XCTAssertEqual(secondAction, .none)
+        XCTAssertEqual(displaySleeper.sleepCount, 0)
+    }
+
+    func testRequestsDisplaySleepWhenLidTransitionsToClosed() {
+        let clamshellStateReader = FakeClamshellStateReader(state: .open)
+        let displaySleeper = FakeDisplaySleeper()
+        let coordinator = ClosedLidDisplayCoordinator(
+            clamshellStateReader: clamshellStateReader,
+            displaySleeper: displaySleeper
+        )
+        var settings = UserSettings.defaults
+        settings.lidClosedDisplayMode = .turnDisplayOff
+
+        let initialAction = coordinator.update(
+            settings: settings,
+            wakeStatus: holdingStatus(),
+            closedLidStatus: .enabled
+        )
+        clamshellStateReader.state = .closed
+        let closeAction = coordinator.update(
+            settings: settings,
+            wakeStatus: holdingStatus(),
+            closedLidStatus: .enabled
+        )
+
+        XCTAssertEqual(initialAction, .none)
+        XCTAssertEqual(closeAction, .requestedDisplaySleep)
         XCTAssertEqual(displaySleeper.sleepCount, 1)
     }
 
+    func testDoesNotRequestDisplaySleepWhenStateMovesFromUnavailableToClosed() {
+        let clamshellStateReader = FakeClamshellStateReader(state: .unavailable)
+        let displaySleeper = FakeDisplaySleeper()
+        let coordinator = ClosedLidDisplayCoordinator(
+            clamshellStateReader: clamshellStateReader,
+            displaySleeper: displaySleeper
+        )
+        var settings = UserSettings.defaults
+        settings.lidClosedDisplayMode = .turnDisplayOff
+
+        let initialAction = coordinator.update(
+            settings: settings,
+            wakeStatus: holdingStatus(),
+            closedLidStatus: .enabled
+        )
+        clamshellStateReader.state = .closed
+        let closeAction = coordinator.update(
+            settings: settings,
+            wakeStatus: holdingStatus(),
+            closedLidStatus: .enabled
+        )
+
+        XCTAssertEqual(initialAction, .none)
+        XCTAssertEqual(closeAction, .none)
+        XCTAssertEqual(displaySleeper.sleepCount, 0)
+    }
+
     func testRetriesDisplaySleepDuringClosedLidTransitionThenStops() {
-        let clamshellStateReader = FakeClamshellStateReader(state: .closed)
+        let clamshellStateReader = FakeClamshellStateReader(state: .open)
         let displaySleeper = FakeDisplaySleeper()
         let coordinator = ClosedLidDisplayCoordinator(
             clamshellStateReader: clamshellStateReader,
@@ -33,6 +93,12 @@ final class ClosedLidDisplayCoordinatorTests: XCTestCase {
         settings.lidClosedDisplayMode = .turnDisplayOff
 
         _ = coordinator.update(
+            settings: settings,
+            wakeStatus: holdingStatus(),
+            closedLidStatus: .enabled
+        )
+        clamshellStateReader.state = .closed
+        let firstAction = coordinator.update(
             settings: settings,
             wakeStatus: holdingStatus(),
             closedLidStatus: .enabled
@@ -53,6 +119,7 @@ final class ClosedLidDisplayCoordinatorTests: XCTestCase {
             closedLidStatus: .enabled
         )
 
+        XCTAssertEqual(firstAction, .requestedDisplaySleep)
         XCTAssertEqual(secondAction, .requestedDisplaySleep)
         XCTAssertEqual(thirdAction, .requestedDisplaySleep)
         XCTAssertEqual(fourthAction, .none)
@@ -60,7 +127,7 @@ final class ClosedLidDisplayCoordinatorTests: XCTestCase {
     }
 
     func testWaitsForLockedSessionBeforeDisplaySleepWhenLockOnCloseIsEnabled() {
-        let clamshellStateReader = FakeClamshellStateReader(state: .closed)
+        let clamshellStateReader = FakeClamshellStateReader(state: .open)
         let displaySleeper = FakeDisplaySleeper()
         let screenLockStateReader = FakeScreenLockStateReader(state: .unlocked)
         let coordinator = ClosedLidDisplayCoordinator(
@@ -72,6 +139,12 @@ final class ClosedLidDisplayCoordinatorTests: XCTestCase {
         settings.lidClosedDisplayMode = .turnDisplayOff
         settings.lockScreenWhenLidCloses = true
 
+        _ = coordinator.update(
+            settings: settings,
+            wakeStatus: holdingStatus(),
+            closedLidStatus: .enabled
+        )
+        clamshellStateReader.state = .closed
         let firstAction = coordinator.update(
             settings: settings,
             wakeStatus: holdingStatus(),
@@ -96,7 +169,7 @@ final class ClosedLidDisplayCoordinatorTests: XCTestCase {
     }
 
     func testRequestsDisplaySleepWhenScreenLockStateIsUnavailable() {
-        let clamshellStateReader = FakeClamshellStateReader(state: .closed)
+        let clamshellStateReader = FakeClamshellStateReader(state: .open)
         let displaySleeper = FakeDisplaySleeper()
         let screenLockStateReader = FakeScreenLockStateReader(state: .unavailable)
         let coordinator = ClosedLidDisplayCoordinator(
@@ -108,6 +181,12 @@ final class ClosedLidDisplayCoordinatorTests: XCTestCase {
         settings.lidClosedDisplayMode = .turnDisplayOff
         settings.lockScreenWhenLidCloses = true
 
+        _ = coordinator.update(
+            settings: settings,
+            wakeStatus: holdingStatus(),
+            closedLidStatus: .enabled
+        )
+        clamshellStateReader.state = .closed
         let action = coordinator.update(
             settings: settings,
             wakeStatus: holdingStatus(),
@@ -119,7 +198,7 @@ final class ClosedLidDisplayCoordinatorTests: XCTestCase {
     }
 
     func testRequestsDisplaySleepWhenScreenLockWaitIsBypassed() {
-        let clamshellStateReader = FakeClamshellStateReader(state: .closed)
+        let clamshellStateReader = FakeClamshellStateReader(state: .open)
         let displaySleeper = FakeDisplaySleeper()
         let screenLockStateReader = FakeScreenLockStateReader(state: .unlocked)
         let coordinator = ClosedLidDisplayCoordinator(
@@ -131,6 +210,12 @@ final class ClosedLidDisplayCoordinatorTests: XCTestCase {
         settings.lidClosedDisplayMode = .turnDisplayOff
         settings.lockScreenWhenLidCloses = true
 
+        _ = coordinator.update(
+            settings: settings,
+            wakeStatus: holdingStatus(),
+            closedLidStatus: .enabled
+        )
+        clamshellStateReader.state = .closed
         let action = coordinator.update(
             settings: settings,
             wakeStatus: holdingStatus(),
@@ -143,7 +228,7 @@ final class ClosedLidDisplayCoordinatorTests: XCTestCase {
     }
 
     func testOpenLidResetsDisplaySleepRequest() {
-        let clamshellStateReader = FakeClamshellStateReader(state: .closed)
+        let clamshellStateReader = FakeClamshellStateReader(state: .open)
         let displaySleeper = FakeDisplaySleeper()
         let coordinator = ClosedLidDisplayCoordinator(
             clamshellStateReader: clamshellStateReader,
@@ -152,6 +237,12 @@ final class ClosedLidDisplayCoordinatorTests: XCTestCase {
         var settings = UserSettings.defaults
         settings.lidClosedDisplayMode = .turnDisplayOff
 
+        _ = coordinator.update(
+            settings: settings,
+            wakeStatus: holdingStatus(),
+            closedLidStatus: .enabled
+        )
+        clamshellStateReader.state = .closed
         for _ in 0..<3 {
             _ = coordinator.update(
                 settings: settings,
@@ -176,8 +267,8 @@ final class ClosedLidDisplayCoordinatorTests: XCTestCase {
         XCTAssertEqual(displaySleeper.sleepCount, 4)
     }
 
-    func testDoesNotRequestDisplaySleepWhenKeepingDisplayOn() {
-        let clamshellStateReader = FakeClamshellStateReader(state: .closed)
+    func testDoesNotRequestDisplaySleepWhenKeepingDisplayOnDuringClosure() {
+        let clamshellStateReader = FakeClamshellStateReader(state: .open)
         let displaySleeper = FakeDisplaySleeper()
         let coordinator = ClosedLidDisplayCoordinator(
             clamshellStateReader: clamshellStateReader,
@@ -186,36 +277,63 @@ final class ClosedLidDisplayCoordinatorTests: XCTestCase {
         var settings = UserSettings.defaults
         settings.lidClosedDisplayMode = .keepDisplayOn
 
-        let action = coordinator.update(
+        _ = coordinator.update(
+            settings: settings,
+            wakeStatus: holdingStatus(),
+            closedLidStatus: .enabled
+        )
+        clamshellStateReader.state = .closed
+        let closeAction = coordinator.update(
+            settings: settings,
+            wakeStatus: holdingStatus(),
+            closedLidStatus: .enabled
+        )
+        settings.lidClosedDisplayMode = .turnDisplayOff
+        let changedWhileClosedAction = coordinator.update(
             settings: settings,
             wakeStatus: holdingStatus(),
             closedLidStatus: .enabled
         )
 
-        XCTAssertEqual(action, .none)
+        XCTAssertEqual(closeAction, .none)
+        XCTAssertEqual(changedWhileClosedAction, .none)
         XCTAssertEqual(displaySleeper.sleepCount, 0)
     }
 
-    func testDoesNotRequestDisplaySleepBeforeClosedLidModeIsEnabled() {
-        let clamshellStateReader = FakeClamshellStateReader(state: .closed)
+    func testWaitsForClosedLidModeAfterObservedTransition() {
+        let clamshellStateReader = FakeClamshellStateReader(state: .open)
         let displaySleeper = FakeDisplaySleeper()
         let coordinator = ClosedLidDisplayCoordinator(
             clamshellStateReader: clamshellStateReader,
             displaySleeper: displaySleeper
         )
+        var settings = UserSettings.defaults
+        settings.lidClosedDisplayMode = .turnDisplayOff
 
-        let action = coordinator.update(
-            settings: .defaults,
+        _ = coordinator.update(
+            settings: settings,
             wakeStatus: holdingStatus(),
             closedLidStatus: .disabled
         )
+        clamshellStateReader.state = .closed
+        let waitingAction = coordinator.update(
+            settings: settings,
+            wakeStatus: holdingStatus(),
+            closedLidStatus: .disabled
+        )
+        let enabledAction = coordinator.update(
+            settings: settings,
+            wakeStatus: holdingStatus(),
+            closedLidStatus: .enabled
+        )
 
-        XCTAssertEqual(action, .none)
-        XCTAssertEqual(displaySleeper.sleepCount, 0)
+        XCTAssertEqual(waitingAction, .none)
+        XCTAssertEqual(enabledAction, .requestedDisplaySleep)
+        XCTAssertEqual(displaySleeper.sleepCount, 1)
     }
 
     func testReturnsFailureWhenDisplaySleepFails() {
-        let clamshellStateReader = FakeClamshellStateReader(state: .closed)
+        let clamshellStateReader = FakeClamshellStateReader(state: .open)
         let displaySleeper = FakeDisplaySleeper()
         displaySleeper.error = NSError(domain: "DisplaySleep", code: 1)
         let coordinator = ClosedLidDisplayCoordinator(
@@ -223,6 +341,12 @@ final class ClosedLidDisplayCoordinatorTests: XCTestCase {
             displaySleeper: displaySleeper
         )
 
+        _ = coordinator.update(
+            settings: .defaults,
+            wakeStatus: holdingStatus(),
+            closedLidStatus: .enabled
+        )
+        clamshellStateReader.state = .closed
         let action = coordinator.update(
             settings: .defaults,
             wakeStatus: holdingStatus(),

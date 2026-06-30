@@ -294,19 +294,22 @@ final class AppModelLifecycleTests: XCTestCase {
             helperStatus: .enabled,
             closedLidStatus: .enabled
         )
-        harness.lockClamshellReader.state = .closed
+        harness.lockClamshellReader.state = .open
         harness.deviceLocker.error = ScreenLockError.accessibilityPermissionRequired
         harness.screenLockPermissionChecker.requiresAccessibilityPermission = true
         harness.screenLockPermissionChecker.hasPermission = false
 
         harness.model.start(scheduleTimers: false)
         await drainMainQueue()
+        harness.lockClamshellReader.state = .closed
+        harness.model.evaluate()
+        await drainMainQueue()
 
         XCTAssertEqual(
             harness.model.closedLidLockError,
             ScreenLockError.accessibilityPermissionMessage
         )
-        XCTAssertEqual(harness.screenLockPermissionChecker.promptRequests, [false, true])
+        XCTAssertEqual(harness.screenLockPermissionChecker.promptRequests, [false, true, false])
 
         harness.screenLockPermissionChecker.hasPermission = true
         harness.deviceLocker.error = nil
@@ -316,9 +319,29 @@ final class AppModelLifecycleTests: XCTestCase {
         XCTAssertNil(harness.model.closedLidLockError)
         XCTAssertEqual(
             harness.screenLockPermissionChecker.promptRequests,
-            [false, true, false, false, false]
+            [false, true, false, false, false, false]
         )
-        XCTAssertEqual(harness.deviceLocker.lockCount, 2)
+        XCTAssertEqual(harness.deviceLocker.lockCount, 1)
+    }
+
+    func testStartupDoesNotLockWhenLidWasAlreadyClosed() async {
+        let harness = AppModelHarness(
+            settings: UserSettings(
+                enabled: true,
+                lockScreenWhenLidCloses: true
+            ),
+            helperStatus: .enabled,
+            closedLidStatus: .enabled
+        )
+        harness.lockClamshellReader.state = .closed
+
+        harness.model.start(scheduleTimers: false)
+        await drainMainQueue()
+        harness.model.refreshAfterExternalPermissionChange()
+        await drainMainQueue()
+
+        XCTAssertNil(harness.model.closedLidLockError)
+        XCTAssertEqual(harness.deviceLocker.lockCount, 0)
     }
 
     func testScreenLockPermissionActionOpensAccessibilitySettings() async {
@@ -355,14 +378,18 @@ final class AppModelLifecycleTests: XCTestCase {
             helperStatus: .enabled,
             closedLidStatus: .enabled
         )
-        harness.lockClamshellReader.state = .closed
-        harness.displayClamshellReader.state = .closed
+        harness.lockClamshellReader.state = .open
+        harness.displayClamshellReader.state = .open
         harness.displayScreenLockStateReader.state = .unlocked
         harness.deviceLocker.error = ScreenLockError.accessibilityPermissionRequired
         harness.screenLockPermissionChecker.requiresAccessibilityPermission = true
         harness.screenLockPermissionChecker.hasPermission = false
 
         harness.model.start(scheduleTimers: false)
+        await drainMainQueue()
+        harness.lockClamshellReader.state = .closed
+        harness.displayClamshellReader.state = .closed
+        harness.model.evaluate()
         await drainMainQueue()
 
         XCTAssertEqual(
