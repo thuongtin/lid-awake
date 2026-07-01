@@ -83,3 +83,16 @@ Never commit Apple ID credentials, app-specific passwords, private keys, or cert
 - `codesign --verify --deep --strict dist/LidAwake.app` exits 0.
 - `spctl -a -vv --type open --context context:primary-signature dist/releases/LidAwake-<version>-macos.dmg` reports `accepted`.
 - The notarized DMG, zip archive, and `.sha256` checksums are uploaded together.
+
+## Homebrew Tap
+
+The current Homebrew tap is `thuongtin/homebrew-tap`, installed by users as `thuongtin/tap`.
+
+Update `Casks/lid-awake.rb` in that tap after publishing a GitHub release:
+
+- Set `version` to the release version.
+- Set `sha256` to the DMG checksum.
+- Keep `depends_on arch: :arm64` while release binaries are Apple Silicon only.
+- Run `brew audit --cask --strict --online thuongtin/tap/lid-awake`.
+- Run `brew fetch --cask --force thuongtin/tap/lid-awake`.
+- Run `brew install --cask --dry-run thuongtin/tap/lid-awake`.

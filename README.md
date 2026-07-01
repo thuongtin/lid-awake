@@ -6,7 +6,7 @@ Bundle identifier: `com.thuongtin.LidAwake`.
 
 ## Project Status
 
-Lid Awake is early release software. Public downloads are Developer ID signed, notarized by Apple, and distributed as zip archives with SHA-256 checksums.
+Lid Awake is early release software. Public downloads are Developer ID signed, notarized by Apple, and distributed as DMG and zip archives with SHA-256 checksums.
 
 ## Features
 
@@ -22,6 +22,7 @@ Lid Awake is early release software. Public downloads are Developer ID signed, n
 ## Runtime Requirements
 
 - macOS 14 or newer.
+- Apple Silicon Mac. Current public builds are `arm64` only and do not run on Intel Macs.
 
 ## Development Requirements
 
@@ -29,6 +30,15 @@ Lid Awake is early release software. Public downloads are Developer ID signed, n
 - Swift toolchain compatible with SwiftPM `swift-tools-version: 5.10`.
 
 ## Install
+
+Install with Homebrew:
+
+```bash
+brew tap thuongtin/tap
+brew install --cask lid-awake
+```
+
+The Homebrew cask declares `depends_on arch: :arm64`, so Intel Macs are blocked at install time.
 
 Download the latest `LidAwake-<version>-macos.dmg` and matching `.sha256` file from [GitHub Releases](https://github.com/thuongtin/lid-awake/releases). The zip archive is also published for users who prefer scriptable downloads.
 
@@ -127,6 +137,7 @@ After the app bundle is notarized and stapled, create a DMG installer:
 - `script/stage_app.sh`: pure app bundle staging without launching the app.
 - `script/build_and_run.sh`: local stage, run, debug, logs, telemetry, and runtime verification entrypoint.
 - `script/package_release.sh`: local release archive and checksum command.
+- `script/package_dmg.sh`: DMG creation command for notarized and stapled app bundles.
 - `scripts/check.sh`: CI-safe build, test, stage, and plist lint.
 - `scripts/verify.sh`: optional local runtime smoke verification that may launch the app.
 - `plans/`: implementation plans and reviewer status.
@@ -138,6 +149,7 @@ Keep local scratch output and reference repositories outside the public source t
 ## Current Limitations
 
 - No auto-update channel is included.
+- Intel Macs are not supported by current public release artifacts.
 - Closed-lid mode requires explicit helper approval in System Settings.
 - The local staged app uses development signing suitable for local testing.
 - Closed-lid behavior may vary by Mac model, power source, lid state, and macOS policy.

@@ -6,7 +6,8 @@ The format follows dated release sections after the first tagged release.
 
 ## Unreleased
 
-- No unreleased changes yet.
+- Documented current Apple Silicon only release support.
+- Added Homebrew tap installation guidance for `thuongtin/tap/lid-awake`.
 
 ## 0.1.1 - 2026-07-01
 
