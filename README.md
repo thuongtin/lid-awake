@@ -6,7 +6,7 @@ Bundle identifier: `com.thuongtin.LidAwake`.
 
 ## Project Status
 
-Lid Awake is pre-release software. The source tree can build, test, stage, and package a local macOS app bundle, but public notarized releases still require Developer ID signing and notarization by a maintainer.
+Lid Awake is early release software. Public downloads are Developer ID signed, notarized by Apple, and distributed as zip archives with SHA-256 checksums.
 
 ## Features
 
@@ -19,11 +19,29 @@ Lid Awake is pre-release software. The source tree can build, test, stage, and p
 - CI-safe checks separated from local runtime verification.
 - Local release archive creation with SHA-256 checksum.
 
-## Requirements
+## Runtime Requirements
 
 - macOS 14 or newer.
+
+## Development Requirements
+
 - Xcode command line tools.
 - Swift toolchain compatible with SwiftPM `swift-tools-version: 5.10`.
+
+## Install
+
+Download the latest `LidAwake-<version>-macos.zip` and matching `.sha256` file from [GitHub Releases](https://github.com/thuongtin/lid-awake/releases).
+
+Verify the checksum:
+
+```bash
+cd ~/Downloads
+shasum -a 256 -c LidAwake-<version>-macos.zip.sha256
+```
+
+Then unzip the archive and move `LidAwake.app` to `/Applications`.
+
+Release builds are notarized and stapled, so normal installs do not require `xattr`. If macOS still blocks the app, first confirm you downloaded the official release asset and that the checksum matches. Avoid `xattr -cr` for official releases unless you intentionally changed the archive or received it through a channel that added a quarantine problem outside the release package.
 
 ## Safety
 
@@ -113,7 +131,6 @@ Keep local scratch output and reference repositories outside the public source t
 
 ## Current Limitations
 
-- Public notarized releases require Developer ID signing and the checklist in `docs/releasing.md`.
 - No auto-update channel is included.
 - Closed-lid mode requires explicit helper approval in System Settings.
 - The local staged app uses development signing suitable for local testing.

@@ -6,7 +6,14 @@ The format follows dated release sections after the first tagged release.
 
 ## Unreleased
 
+- No unreleased changes yet.
+
+## 0.1.1 - 2026-07-01
+
 - Improved closed-lid display-off reliability on multi-monitor setups by retrying display sleep during the first closed-lid transition ticks, removing the `ScreenSaverEngine.app` lock fallback, and waiting for session lock before display sleep when lock-on-close is enabled.
+- Fixed launch and permission-refresh behavior so opening the app while the lid is already closed does not trigger lock-on-close or display-off side effects.
+- Replaced the SwiftUI `MenuBarExtra` window with an `NSStatusItem` and transient popover to reduce idle CPU usage.
+- Published the first Developer ID signed, notarized, and stapled public release archive with a SHA-256 checksum.
 - Added a timeout and repair action for stale Advanced Helper updates so the app no longer stays on `Updating helper` when the helper registration is approved but XPC cannot start it.
 - Added local helper maintenance commands for development builds, including `--helper-status`, `--helper-repair`, and `--helper-remove`.
 - Added Accessibility refresh handling for lock-on-close so stale screen lock errors clear after the current app is approved in System Settings.
