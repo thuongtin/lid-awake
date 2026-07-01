@@ -30,18 +30,18 @@ Lid Awake is early release software. Public downloads are Developer ID signed, n
 
 ## Install
 
-Download the latest `LidAwake-<version>-macos.zip` and matching `.sha256` file from [GitHub Releases](https://github.com/thuongtin/lid-awake/releases).
+Download the latest `LidAwake-<version>-macos.dmg` and matching `.sha256` file from [GitHub Releases](https://github.com/thuongtin/lid-awake/releases). The zip archive is also published for users who prefer scriptable downloads.
 
 Verify the checksum:
 
 ```bash
 cd ~/Downloads
-shasum -a 256 -c LidAwake-<version>-macos.zip.sha256
+shasum -a 256 -c LidAwake-<version>-macos.dmg.sha256
 ```
 
-Then unzip the archive and move `LidAwake.app` to `/Applications`.
+Then open the DMG and drag `LidAwake.app` to `Applications`. If you choose the zip archive instead, verify the matching `LidAwake-<version>-macos.zip.sha256` file before unzipping.
 
-Release builds are notarized and stapled, so normal installs do not require `xattr`. If macOS still blocks the app, first confirm you downloaded the official release asset and that the checksum matches. Avoid `xattr -cr` for official releases unless you intentionally changed the archive or received it through a channel that added a quarantine problem outside the release package.
+Release builds are notarized and stapled, including the DMG, so normal installs do not require `xattr`. If macOS still blocks the app, first confirm you downloaded the official release asset and that the checksum matches. Avoid `xattr -cr` for official releases unless you intentionally changed the archive or received it through a channel that added a quarantine problem outside the release package.
 
 ## Safety
 
@@ -98,6 +98,12 @@ Create a local release archive:
 Archives are written to `dist/releases` with a `.sha256` checksum. Public release packaging requires Developer ID signing by default, so read [Releasing](docs/releasing.md) before publishing a public build.
 
 `./script/package_release.sh` is a public release gate by default and requires a `Developer ID Application` signing identity. For local archive testing only, run it with `ALLOW_NON_DEVELOPER_ID_RELEASE=1`.
+
+After the app bundle is notarized and stapled, create a DMG installer:
+
+```bash
+./script/package_dmg.sh
+```
 
 ## Documentation
 

@@ -12,6 +12,14 @@ Create a release configuration app bundle, zip archive, and checksum for a publi
 
 The archive is written to `dist/releases/LidAwake-<version>-macos.zip` with a matching `.sha256` file. The version comes from `CFBundleShortVersionString` in the staged app `Info.plist`.
 
+After the app bundle is notarized and stapled, create the user-facing DMG:
+
+```bash
+./script/package_dmg.sh
+```
+
+The DMG is written to `dist/releases/LidAwake-<version>-macos.dmg` with a matching `.sha256` file. Public DMG packaging also requires a `Developer ID Application` signing identity by default.
+
 By default, `package_release.sh` requires a `Developer ID Application` signing identity and fails before packaging if it cannot find one. This prevents accidentally uploading Apple Development or ad-hoc signed archives as public downloads.
 
 For local archive mechanics only, use the explicit escape hatch:
@@ -57,7 +65,12 @@ High-level public release flow:
 5. Wait for notarization to succeed.
 6. Staple the ticket to `dist/LidAwake.app` with `xcrun stapler staple`.
 7. Recreate the public zip and `.sha256` checksum after stapling.
-8. Verify Gatekeeper behavior on a clean macOS machine before publishing.
+8. Create the DMG with `./script/package_dmg.sh`.
+9. Submit the DMG with `xcrun notarytool submit`.
+10. Wait for DMG notarization to succeed.
+11. Staple the ticket to the DMG with `xcrun stapler staple`.
+12. Recreate the DMG `.sha256` checksum after stapling.
+13. Verify Gatekeeper behavior on the DMG and on the app inside the mounted DMG before publishing.
 
 Never commit Apple ID credentials, app-specific passwords, private keys, or certificate exports.
 
@@ -68,4 +81,5 @@ Never commit Apple ID credentials, app-specific passwords, private keys, or cert
 - `./scripts/check.sh` exits 0.
 - `CONFIGURATION=release ./script/stage_app.sh` exits 0.
 - `codesign --verify --deep --strict dist/LidAwake.app` exits 0.
-- The notarized archive and `.sha256` checksum are uploaded together.
+- `spctl -a -vv --type open --context context:primary-signature dist/releases/LidAwake-<version>-macos.dmg` reports `accepted`.
+- The notarized DMG, zip archive, and `.sha256` checksums are uploaded together.
