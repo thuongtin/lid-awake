@@ -33,7 +33,7 @@ và cập nhật dòng status của plan trong file này khi hoàn tất.
 | 014 | Allow display sleep after lock failure | P2 | M | 012 | DONE |
 | 015 | Refresh plan index current state | P2 | S | 011, 012, 013, 014 | DONE |
 | 016 | Rename legacy notification identifier | P3 | S | - | DONE |
-| 017 | Harden CI with dependency caching, concurrency cancellation, and shellcheck | P1 | S | Sparkle change set committed | TODO |
+| 017 | Harden CI with dependency caching, concurrency cancellation, and shellcheck | P1 | S | Sparkle change set committed | DONE |
 | 018 | Enforce an OS-verified code-signing requirement on helper XPC connections | P1 | M | - | DONE |
 | 019 | Cut idle pmset polling, per-tick status churn, and 5-second log spam | P1 | M | - | DONE |
 | 020 | Validate Sparkle staging inputs and test the update configuration parsing | P2 | S-M | Sparkle change set committed | TODO |

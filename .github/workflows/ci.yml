@@ -6,6 +6,10 @@ on:
       - main
   pull_request:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   swift:
     runs-on: macos-latest
@@ -13,8 +17,25 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      - name: Cache SwiftPM build
+        uses: actions/cache@v4
+        with:
+          path: .build
+          key: ${{ runner.os }}-swiftpm-${{ hashFiles('Package.resolved') }}
+          restore-keys: |
+            ${{ runner.os }}-swiftpm-
+
       - name: Print Swift version
         run: swift --version
 
       - name: Run CI-safe checks
         run: ./scripts/check.sh
+
+  shellcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Lint shell scripts
+        run: shellcheck script/*.sh scripts/check.sh scripts/verify.sh

@@ -62,7 +62,7 @@ if [[ -n "$SPARKLE_RELEASE_NOTES" ]]; then
     exit 2
   fi
   extension="${SPARKLE_RELEASE_NOTES##*.}"
-  cp "$SPARKLE_RELEASE_NOTES" "$APPCAST_DIR/$(basename "$update_archive" .${update_archive##*.}).$extension"
+  cp "$SPARKLE_RELEASE_NOTES" "$APPCAST_DIR/$(basename "$update_archive" ."${update_archive##*.}").$extension"
 fi
 
 appcast_args=(
