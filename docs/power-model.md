@@ -28,7 +28,7 @@ Advanced helper label: `com.thuongtin.LidAwake.Helper`.
 
 ## Helper Trust Boundary
 
-The privileged helper accepts XPC clients only when macOS code signing information identifies the client as the bundled `Lid Awake` app with identifier `com.thuongtin.LidAwake` and a Team ID matching the helper build. The helper rejects unauthorized local clients before exporting its XPC object or resuming the connection.
+The privileged helper accepts XPC clients only when macOS code signing information identifies the client as the bundled `Lid Awake` app with identifier `com.thuongtin.LidAwake` and a Team ID matching the helper build. The helper rejects unauthorized local clients before exporting its XPC object or resuming the connection. In addition to that accept-time check, the helper pins each accepted connection with an OS-enforced code signing requirement (identifier plus Apple anchor plus Team ID) via `setCodeSigningRequirement`, so macOS re-verifies the peer for the lifetime of the connection rather than only at accept time.
 
 The helper exposes only two operations: read the closed-lid power status and set closed-lid mode through the approved `pmset -a disablesleep` command path.
 

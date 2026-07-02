@@ -4,6 +4,10 @@ import Foundation
 final class HelperService: NSObject, NSXPCListenerDelegate, LidAwakeHelperXPCProtocol {
     private let pmsetService = PMSetService()
     private let clientAuthorizer = HelperClientAuthorizer()
+    private let codeSigningRequirement: String? = {
+        let info = try? SecurityCodeSigningInfoProvider().currentProcessCodeSigningInfo()
+        return HelperCodeSigningRequirement.requirement(teamIdentifier: info?.teamIdentifier)
+    }()
 
     func listener(_ listener: NSXPCListener, shouldAcceptNewConnection connection: NSXPCConnection) -> Bool {
         let processID = connection.processIdentifier
@@ -11,6 +15,13 @@ final class HelperService: NSObject, NSXPCListenerDelegate, LidAwakeHelperXPCPro
             NSLog("Rejected helper XPC connection from PID \(processID)")
             return false
         }
+
+        guard let codeSigningRequirement else {
+            NSLog("Rejected helper XPC connection: helper build has no Team ID")
+            return false
+        }
+
+        connection.setCodeSigningRequirement(codeSigningRequirement)
 
         connection.exportedInterface = NSXPCInterface(with: LidAwakeHelperXPCProtocol.self)
         connection.exportedObject = self
