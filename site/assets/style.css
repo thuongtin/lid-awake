@@ -93,13 +93,6 @@ section { padding: 88px 0; scroll-margin-top: 88px; }
   height: 68px;
 }
 .logo { display: flex; align-items: center; gap: 10px; color: var(--fg-bright); }
-.logo-mark {
-  width: 22px;
-  height: 22px;
-  border-radius: 6px;
-  display: inline-block;
-  object-fit: contain;
-}
 .logo-text { font-weight: 600; }
 .version-badge {
   font-family: var(--font-mono);
