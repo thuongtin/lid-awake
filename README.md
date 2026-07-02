@@ -97,7 +97,7 @@ Build and launch the local app bundle:
 ./script/build_and_run.sh
 ```
 
-Local debug staging leaves Sparkle update checks unconfigured by default. This prevents local builds from showing update errors before a public `appcast.xml` exists. To test a custom appcast locally, pass `SPARKLE_ENABLED=1` and `SPARKLE_FEED_URL=<url>` to `script/stage_app.sh` or `script/build_and_run.sh`.
+Local debug staging leaves Sparkle update checks unconfigured by default. This prevents local builds from showing update errors before a public `appcast.xml` exists. To test a custom appcast locally, pass `SPARKLE_ENABLED=1` and `SPARKLE_FEED_URL=<url>` to `script/stage_app.sh` or `script/build_and_run.sh`; add `SPARKLE_ALLOW_INSECURE_FEED=1` if the local feed is not `https://` (for example `http://localhost`).
 
 Optional local runtime verification lives in `scripts/verify.sh`. It may launch the app, delete `LidAwake.settings` defaults for verification, and check live `pmset` power assertions, so it is not used by CI and should run only on a developer Mac where runtime power-management QA is acceptable.
 

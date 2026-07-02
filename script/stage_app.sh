@@ -54,6 +54,19 @@ if [[ "$SPARKLE_ENABLED" == "1" && -z "$SPARKLE_FEED_URL" ]]; then
   SPARKLE_FEED_URL="https://github.com/thuongtin/lid-awake/releases/latest/download/appcast.xml"
 fi
 
+SPARKLE_ALLOW_INSECURE_FEED="${SPARKLE_ALLOW_INSECURE_FEED:-}"
+
+if [[ "$SPARKLE_ENABLED" == "1" ]]; then
+  if [[ "$SPARKLE_FEED_URL" =~ [[:space:]\"\'] ]]; then
+    echo "error: SPARKLE_FEED_URL must not contain spaces or quotes" >&2
+    exit 2
+  fi
+  if [[ "$SPARKLE_FEED_URL" != https://* && -z "$SPARKLE_ALLOW_INSECURE_FEED" ]]; then
+    echo "error: SPARKLE_FEED_URL must use https (set SPARKLE_ALLOW_INSECURE_FEED=1 for local testing only)" >&2
+    exit 2
+  fi
+fi
+
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DIST_DIR="$ROOT_DIR/dist"
 APP_BUNDLE="$DIST_DIR/$APP_NAME.app"
@@ -79,10 +92,16 @@ if [[ -z "$SPARKLE_PUBLIC_ED_KEY" && -n "$SPARKLE_PUBLIC_ED_KEY_FILE" && -f "$SP
   SPARKLE_PUBLIC_ED_KEY="$(tr -d '[:space:]' <"$SPARKLE_PUBLIC_ED_KEY_FILE")"
 fi
 
-if [[ "$SPARKLE_ENABLED" == "1" && -z "$SPARKLE_PUBLIC_ED_KEY" ]]; then
-  echo "error: Sparkle staging requires SPARKLE_PUBLIC_ED_KEY or scripts/sparkle_public_key.txt" >&2
-  echo "hint: run Sparkle generate_keys and commit only the public key" >&2
-  exit 2
+if [[ "$SPARKLE_ENABLED" == "1" ]]; then
+  if [[ -z "$SPARKLE_PUBLIC_ED_KEY" ]]; then
+    echo "error: Sparkle staging requires SPARKLE_PUBLIC_ED_KEY or scripts/sparkle_public_key.txt" >&2
+    echo "hint: run Sparkle generate_keys and commit only the public key" >&2
+    exit 2
+  fi
+  if [[ ! "$SPARKLE_PUBLIC_ED_KEY" =~ ^[A-Za-z0-9+/]{43}=$ ]]; then
+    echo "error: SPARKLE_PUBLIC_ED_KEY is not a valid base64 Ed25519 public key" >&2
+    exit 2
+  fi
 fi
 
 if [[ -z "$SIGNING_IDENTITY" ]]; then

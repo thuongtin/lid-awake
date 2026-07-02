@@ -169,13 +169,18 @@ final class SystemSoftwareUpdateService: NSObject, SoftwareUpdateServicing {
     }
 }
 
-private struct SoftwareUpdateConfiguration {
+struct SoftwareUpdateConfiguration {
     let feedURL: String?
     let publicKey: String?
 
     init(bundle: Bundle) {
         self.feedURL = bundle.object(forInfoDictionaryKey: "SUFeedURL") as? String
         self.publicKey = bundle.object(forInfoDictionaryKey: "SUPublicEDKey") as? String
+    }
+
+    init(feedURL: String?, publicKey: String?) {
+        self.feedURL = feedURL
+        self.publicKey = publicKey
     }
 
     var isConfigured: Bool {

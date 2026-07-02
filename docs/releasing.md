@@ -61,6 +61,8 @@ https://github.com/thuongtin/lid-awake/releases/latest/download/appcast.xml
 
 Release staging enables Sparkle automatically and injects this feed URL plus `SUPublicEDKey`. Debug staging leaves Sparkle unconfigured by default so unreleased local builds do not show update retrieval errors. Override the feed for test channels with `SPARKLE_FEED_URL`; set `SPARKLE_ENABLED=1` when testing Sparkle from a debug bundle.
 
+`script/stage_app.sh` validates these inputs before staging: it rejects a `SPARKLE_FEED_URL` that is not `https://` (or contains spaces or quotes), and it rejects a `SPARKLE_PUBLIC_ED_KEY` that is not a well-formed base64 Ed25519 public key. `SPARKLE_ALLOW_INSECURE_FEED=1` bypasses the HTTPS requirement for local testing only (for example against `http://localhost`) and must never be set when staging a public release.
+
 ## Signing Identity
 
 For a public release, export a Developer ID signing identity before packaging if auto-detection does not select the right one:
