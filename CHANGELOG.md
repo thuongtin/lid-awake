@@ -6,6 +6,9 @@ The format follows dated release sections after the first tagged release.
 
 ## Unreleased
 
+- Added Sparkle 2 update checks from the menu bar and Settings, including automatic update check controls.
+- Added Sparkle framework staging, public update key injection, and signed appcast generation for public releases.
+- Disabled Sparkle metadata in local debug staging by default so unreleased builds do not show appcast retrieval errors.
 - Documented current Apple Silicon only release support.
 - Added Homebrew tap installation guidance for `thuongtin/tap/lid-awake`.
 

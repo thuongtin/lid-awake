@@ -300,6 +300,11 @@ struct MenuBarContentView: View {
 
     private var footerActions: some View {
         HStack(spacing: 10) {
+            FooterButton("Update", systemImage: "arrow.triangle.2.circlepath") {
+                model.checkForSoftwareUpdates()
+            }
+            .disabled(!model.softwareUpdateState.canCheckForUpdates)
+
             FooterButton("Settings", systemImage: "gearshape") {
                 openSettings()
             }

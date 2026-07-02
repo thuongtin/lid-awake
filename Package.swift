@@ -12,11 +12,25 @@ let package = Package(
         .executable(name: "LidAwake", targets: ["LidAwake"]),
         .executable(name: "LidAwakeHelper", targets: ["LidAwakeHelper"])
     ],
+    dependencies: [
+        .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.9.3")
+    ],
     targets: [
         .target(name: "LidAwakeCore"),
         .executableTarget(
             name: "LidAwake",
-            dependencies: ["LidAwakeCore"]
+            dependencies: [
+                "LidAwakeCore",
+                .product(name: "Sparkle", package: "Sparkle")
+            ],
+            linkerSettings: [
+                .unsafeFlags([
+                    "-Xlinker",
+                    "-rpath",
+                    "-Xlinker",
+                    "@executable_path/../Frameworks"
+                ])
+            ]
         ),
         .executableTarget(
             name: "LidAwakeHelper",

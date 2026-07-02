@@ -55,11 +55,8 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
             return
         }
 
-        button.image = NSImage(
-            systemSymbolName: "bolt.circle",
-            accessibilityDescription: "Lid Awake"
-        )
         button.imagePosition = .imageOnly
+        button.imageScaling = .scaleProportionallyDown
         button.target = self
         button.action = #selector(togglePopover(_:))
         button.toolTip = "Lid Awake"
@@ -94,21 +91,60 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
     }
 
     private func updateButton(for status: WakeStatus) {
-        statusItem.button?.contentTintColor = tint(for: status)
+        guard let button = statusItem.button else {
+            return
+        }
+
+        button.contentTintColor = nil
+        button.image = statusImage(for: status)
     }
 
-    private func tint(for status: WakeStatus) -> NSColor {
+    private func statusImage(for status: WakeStatus) -> NSImage? {
+        let configuration = NSImage.SymbolConfiguration(pointSize: 16, weight: .semibold)
+
+        guard
+            let baseImage = NSImage(
+                systemSymbolName: symbolName(for: status),
+                accessibilityDescription: accessibilityDescription(for: status)
+            ),
+            let image = baseImage.withSymbolConfiguration(configuration)
+        else {
+            return nil
+        }
+
+        image.size = NSSize(width: 18, height: 18)
+        image.isTemplate = true
+        return image
+    }
+
+    private func symbolName(for status: WakeStatus) -> String {
         switch status {
         case .holding:
-            return .systemGreen
+            return "bolt.circle.fill"
         case .blocked:
-            return .systemOrange
+            return "exclamationmark.triangle.fill"
         case .paused:
-            return .systemYellow
+            return "pause.circle.fill"
         case .inactive:
-            return .secondaryLabelColor
+            return "moon.circle.fill"
         case .watching:
-            return .systemBlue
+            return "bolt.circle"
         }
     }
+
+    private func accessibilityDescription(for status: WakeStatus) -> String {
+        switch status {
+        case .holding:
+            return "Lid Awake is keeping the Mac awake"
+        case .blocked:
+            return "Lid Awake needs attention"
+        case .paused:
+            return "Lid Awake is paused"
+        case .inactive:
+            return "Lid Awake is off"
+        case .watching:
+            return "Lid Awake is ready"
+        }
+    }
+
 }

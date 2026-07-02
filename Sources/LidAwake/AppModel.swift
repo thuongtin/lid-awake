@@ -48,6 +48,10 @@ final class AppModel: ObservableObject {
     @Published private(set) var sessions: [AgentSession] = []
     @Published private(set) var battery: BatteryState
     @Published private(set) var status: WakeStatus = .inactive
+    @Published private(set) var softwareUpdateState = SoftwareUpdateState.unavailable(
+        message: "Software updates are not configured for this build.",
+        feedURL: nil
+    )
     @Published private(set) var launchAtLoginError: String?
     @Published private(set) var closedLidStatus: ClosedLidStatus = .notReported
     @Published private(set) var closedLidHelperStatus: ClosedLidHelperStatus = .notRegistered
@@ -66,6 +70,7 @@ final class AppModel: ObservableObject {
     private let loginItemService: LoginItemServicing
     private let closedLidStatusReader: ClosedLidStatusReading
     private let closedLidHelperService: ClosedLidHelperServicing
+    private let softwareUpdateService: SoftwareUpdateServicing
     private let screenLockPermissionChecker: ScreenLockPermissionChecking
     private let closedLidModeChangeTimeout: TimeInterval
     private let logger = Logger(subsystem: "com.thuongtin.LidAwake", category: "app")
@@ -94,6 +99,7 @@ final class AppModel: ObservableObject {
             loginItemService: LoginItemService(),
             closedLidStatusReader: PMSetService(),
             closedLidHelperService: ClosedLidHelperService(),
+            softwareUpdateService: SystemSoftwareUpdateService(),
             screenLockPermissionChecker: SystemScreenLockPermissionChecker(),
             powerController: powerController,
             clock: SystemClock(),
@@ -120,6 +126,7 @@ final class AppModel: ObservableObject {
         loginItemService: LoginItemServicing,
         closedLidStatusReader: ClosedLidStatusReading,
         closedLidHelperService: ClosedLidHelperServicing,
+        softwareUpdateService: SoftwareUpdateServicing,
         screenLockPermissionChecker: ScreenLockPermissionChecking,
         powerController: PowerAssertionControlling,
         clock: Clock,
@@ -135,6 +142,7 @@ final class AppModel: ObservableObject {
         self.loginItemService = loginItemService
         self.closedLidStatusReader = closedLidStatusReader
         self.closedLidHelperService = closedLidHelperService
+        self.softwareUpdateService = softwareUpdateService
         self.screenLockPermissionChecker = screenLockPermissionChecker
         self.closedLidModeChangeTimeout = closedLidModeChangeTimeout
         self.powerController = powerController
@@ -147,10 +155,16 @@ final class AppModel: ObservableObject {
         self.notificationService = notificationService
         self.settings = settingsStore.load()
         self.battery = initialBattery
+        self.softwareUpdateService.setStateChangeHandler { [weak self] in
+            self?.syncSoftwareUpdateState()
+        }
+        self.softwareUpdateState = softwareUpdateService.state
     }
 
     func start(scheduleTimers: Bool = true) {
         logger.info("Lid Awake model start")
+        softwareUpdateService.start()
+        syncSoftwareUpdateState()
         loadClosedLidOwnershipRecord()
         syncLaunchAtLoginStatus()
         syncClosedLidHelperStatus()
@@ -349,6 +363,21 @@ final class AppModel: ObservableObject {
             launchAtLoginError = error.localizedDescription
             syncLaunchAtLoginStatus()
         }
+    }
+
+    func checkForSoftwareUpdates() {
+        softwareUpdateService.checkForUpdates()
+        syncSoftwareUpdateState()
+    }
+
+    func setAutomaticallyChecksForUpdates(_ enabled: Bool) {
+        softwareUpdateService.setAutomaticallyChecksForUpdates(enabled)
+        syncSoftwareUpdateState()
+    }
+
+    func setAutomaticallyDownloadsUpdates(_ enabled: Bool) {
+        softwareUpdateService.setAutomaticallyDownloadsUpdates(enabled)
+        syncSoftwareUpdateState()
     }
 
     func updateLidClosedDisplayMode(_ mode: LidClosedDisplayMode) {
@@ -570,6 +599,10 @@ final class AppModel: ObservableObject {
         nextSettings.launchAtLogin = enabled
         settings = nextSettings
         settingsStore.save(nextSettings)
+    }
+
+    private func syncSoftwareUpdateState() {
+        softwareUpdateState = softwareUpdateService.state
     }
 
     private var shouldEnableClosedLidMode: Bool {

@@ -399,6 +399,86 @@ final class AppModelLifecycleTests: XCTestCase {
         XCTAssertEqual(harness.displaySleeper.sleepCount, 1)
         XCTAssertNil(harness.model.closedLidDisplayError)
     }
+
+    func testSoftwareUpdateServiceStartsAndSyncsState() async {
+        let updateState = SoftwareUpdateState(
+            isConfigured: true,
+            canCheckForUpdates: true,
+            sessionInProgress: false,
+            automaticallyChecksForUpdates: true,
+            automaticallyDownloadsUpdates: false,
+            allowsAutomaticUpdates: true,
+            feedURL: "https://example.com/appcast.xml",
+            message: "Ready to check for signed updates."
+        )
+        let harness = AppModelHarness(
+            settings: UserSettings(enabled: false),
+            helperStatus: .enabled,
+            closedLidStatus: .disabled,
+            softwareUpdateState: updateState
+        )
+
+        harness.model.start(scheduleTimers: false)
+        await drainMainQueue()
+
+        XCTAssertEqual(harness.softwareUpdateService.startCallCount, 1)
+        XCTAssertEqual(harness.model.softwareUpdateState, updateState)
+    }
+
+    func testCheckForSoftwareUpdatesUsesSoftwareUpdateService() async {
+        let harness = AppModelHarness(
+            settings: UserSettings(enabled: false),
+            helperStatus: .enabled,
+            closedLidStatus: .disabled,
+            softwareUpdateState: SoftwareUpdateState(
+                isConfigured: true,
+                canCheckForUpdates: true,
+                sessionInProgress: false,
+                automaticallyChecksForUpdates: true,
+                automaticallyDownloadsUpdates: false,
+                allowsAutomaticUpdates: true,
+                feedURL: "https://example.com/appcast.xml",
+                message: "Ready to check for signed updates."
+            )
+        )
+
+        harness.model.checkForSoftwareUpdates()
+        await drainMainQueue()
+
+        XCTAssertEqual(harness.softwareUpdateService.checkForUpdatesCallCount, 1)
+    }
+
+    func testSoftwareUpdateTogglesUseSoftwareUpdateService() async {
+        let harness = AppModelHarness(
+            settings: UserSettings(enabled: false),
+            helperStatus: .enabled,
+            closedLidStatus: .disabled
+        )
+
+        harness.model.setAutomaticallyChecksForUpdates(false)
+        harness.model.setAutomaticallyDownloadsUpdates(true)
+        await drainMainQueue()
+
+        XCTAssertEqual(harness.softwareUpdateService.automaticCheckRequests, [false])
+        XCTAssertEqual(harness.softwareUpdateService.automaticDownloadRequests, [true])
+
+        harness.softwareUpdateService.emit(
+            SoftwareUpdateState(
+                isConfigured: true,
+                canCheckForUpdates: true,
+                sessionInProgress: false,
+                automaticallyChecksForUpdates: false,
+                automaticallyDownloadsUpdates: true,
+                allowsAutomaticUpdates: true,
+                feedURL: "https://example.com/appcast.xml",
+                message: "Ready to check for signed updates."
+            )
+        )
+        await drainMainQueue()
+
+        XCTAssertFalse(harness.model.softwareUpdateState.automaticallyChecksForUpdates)
+        XCTAssertTrue(harness.model.softwareUpdateState.automaticallyDownloadsUpdates)
+    }
 }
 
 private final class AppModelHarness {
@@ -408,6 +488,7 @@ private final class AppModelHarness {
     let loginItemService = FakeLoginItemService()
     let closedLidStatusReader: FakeClosedLidStatusReader
     let helper: FakeClosedLidHelperService
+    let softwareUpdateService: FakeSoftwareUpdateService
     let screenLockPermissionChecker = FakeScreenLockPermissionChecker()
     let powerController = FakePowerController()
     let notificationService: FakeNotificationService
@@ -424,12 +505,17 @@ private final class AppModelHarness {
         helperStatus: ClosedLidHelperStatus,
         closedLidStatus: ClosedLidStatus,
         ownershipRecord: ClosedLidOwnershipRecord? = nil,
+        softwareUpdateState: SoftwareUpdateState = .unavailable(
+            message: "Software updates are not configured for this build.",
+            feedURL: nil
+        ),
         closedLidModeChangeTimeout: TimeInterval = 6
     ) {
         self.settingsStore = FakeSettingsStore(settings: settings)
         self.ownershipStore = FakeClosedLidOwnershipStore(record: ownershipRecord)
         self.closedLidStatusReader = FakeClosedLidStatusReader(status: closedLidStatus)
         self.helper = FakeClosedLidHelperService(status: helperStatus)
+        self.softwareUpdateService = FakeSoftwareUpdateService(state: softwareUpdateState)
         self.notificationService = FakeNotificationService()
         self.model = AppModel(
             settingsStore: settingsStore,
@@ -438,6 +524,7 @@ private final class AppModelHarness {
             loginItemService: loginItemService,
             closedLidStatusReader: closedLidStatusReader,
             closedLidHelperService: helper,
+            softwareUpdateService: softwareUpdateService,
             screenLockPermissionChecker: screenLockPermissionChecker,
             powerController: powerController,
             clock: FakeClock(),
@@ -566,6 +653,51 @@ private final class FakeClosedLidHelperService: ClosedLidHelperServicing {
 
     func openApprovalSettings() {
         openApprovalSettingsCallCount += 1
+    }
+}
+
+@MainActor
+private final class FakeSoftwareUpdateService: SoftwareUpdateServicing {
+    var state: SoftwareUpdateState
+    private var stateChangeHandler: (@MainActor () -> Void)?
+    private(set) var startCallCount = 0
+    private(set) var checkForUpdatesCallCount = 0
+    private(set) var automaticCheckRequests: [Bool] = []
+    private(set) var automaticDownloadRequests: [Bool] = []
+
+    init(state: SoftwareUpdateState) {
+        self.state = state
+    }
+
+    func setStateChangeHandler(_ handler: @escaping @MainActor () -> Void) {
+        stateChangeHandler = handler
+    }
+
+    func start() {
+        startCallCount += 1
+        stateChangeHandler?()
+    }
+
+    func checkForUpdates() {
+        checkForUpdatesCallCount += 1
+        stateChangeHandler?()
+    }
+
+    func setAutomaticallyChecksForUpdates(_ enabled: Bool) {
+        automaticCheckRequests.append(enabled)
+        state.automaticallyChecksForUpdates = enabled
+        stateChangeHandler?()
+    }
+
+    func setAutomaticallyDownloadsUpdates(_ enabled: Bool) {
+        automaticDownloadRequests.append(enabled)
+        state.automaticallyDownloadsUpdates = enabled
+        stateChangeHandler?()
+    }
+
+    func emit(_ state: SoftwareUpdateState) {
+        self.state = state
+        stateChangeHandler?()
     }
 }
 

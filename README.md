@@ -7,6 +7,7 @@ Bundle identifier: `com.thuongtin.LidAwake`.
 ## Project Status
 
 Lid Awake is early release software. Public downloads are Developer ID signed, notarized by Apple, and distributed as DMG and zip archives with SHA-256 checksums.
+Release builds include Sparkle update metadata so users can check for signed updates from the app.
 
 ## Features
 
@@ -16,6 +17,7 @@ Lid Awake is early release software. Public downloads are Developer ID signed, n
 - Optional closed-lid mode through a macOS-approved privileged helper.
 - Display-on or display-off behavior for supported closed-lid workflows.
 - Optional lock screen request when the lid closes.
+- Sparkle-powered update checks from the menu bar and Settings.
 - CI-safe checks separated from local runtime verification.
 - Local release archive creation with SHA-256 checksum.
 
@@ -95,6 +97,8 @@ Build and launch the local app bundle:
 ./script/build_and_run.sh
 ```
 
+Local debug staging leaves Sparkle update checks unconfigured by default. This prevents local builds from showing update errors before a public `appcast.xml` exists. To test a custom appcast locally, pass `SPARKLE_ENABLED=1` and `SPARKLE_FEED_URL=<url>` to `script/stage_app.sh` or `script/build_and_run.sh`.
+
 Optional local runtime verification lives in `scripts/verify.sh`. It may launch the app, delete `LidAwake.settings` defaults for verification, and check live `pmset` power assertions, so it is not used by CI and should run only on a developer Mac where runtime power-management QA is acceptable.
 
 ## Release Packaging
@@ -114,6 +118,14 @@ After the app bundle is notarized and stapled, create a DMG installer:
 ```bash
 ./script/package_dmg.sh
 ```
+
+After the notarized DMG is stapled, generate a Sparkle appcast:
+
+```bash
+./script/package_appcast.sh
+```
+
+The appcast is written to `dist/releases/appcast/appcast.xml`. Sparkle uses the public key in `scripts/sparkle_public_key.txt`; the matching private key must stay in Keychain or a local secret and must never be committed.
 
 ## Documentation
 
@@ -138,6 +150,8 @@ After the app bundle is notarized and stapled, create a DMG installer:
 - `script/build_and_run.sh`: local stage, run, debug, logs, telemetry, and runtime verification entrypoint.
 - `script/package_release.sh`: local release archive and checksum command.
 - `script/package_dmg.sh`: DMG creation command for notarized and stapled app bundles.
+- `script/package_appcast.sh`: Sparkle appcast generation command for notarized release archives.
+- `scripts/sparkle_public_key.txt`: public Sparkle EdDSA key used by release builds.
 - `scripts/check.sh`: CI-safe build, test, stage, and plist lint.
 - `scripts/verify.sh`: optional local runtime smoke verification that may launch the app.
 - `plans/`: implementation plans and reviewer status.
@@ -148,10 +162,10 @@ Keep local scratch output and reference repositories outside the public source t
 
 ## Current Limitations
 
-- No auto-update channel is included.
 - Intel Macs are not supported by current public release artifacts.
 - Closed-lid mode requires explicit helper approval in System Settings.
 - The local staged app uses development signing suitable for local testing.
+- Self-update requires the published `appcast.xml` release asset to match the current notarized DMG.
 - Closed-lid behavior may vary by Mac model, power source, lid state, and macOS policy.
 
 ## License

@@ -43,6 +43,8 @@ struct SettingsView: View {
                     batteryPane
                 case .behavior:
                     behaviorPane
+                case .updates:
+                    updatesPane
                 case .about:
                     aboutPane
                 }
@@ -305,6 +307,63 @@ struct SettingsView: View {
         }
     }
 
+    private var updatesPane: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            PaneHeader(
+                title: "Updates",
+                subtitle: "Signed app updates through Sparkle.",
+                systemImage: "arrow.triangle.2.circlepath"
+            )
+
+            SettingsCard(title: "Software Updates", systemImage: "sparkles") {
+                InfoLine(
+                    title: "Current version",
+                    value: appVersionText,
+                    systemImage: "number"
+                )
+
+                Divider()
+
+                InfoLine(
+                    title: "Update status",
+                    value: model.softwareUpdateState.message,
+                    systemImage: model.softwareUpdateState.isConfigured ? "checkmark.seal" : "exclamationmark.triangle"
+                )
+
+                InfoLine(
+                    title: "Appcast",
+                    value: model.softwareUpdateState.feedURL == nil ? "Not configured" : "Configured",
+                    systemImage: "dot.radiowaves.left.and.right"
+                )
+
+                Divider()
+
+                ToggleRow(
+                    title: "Automatically check for updates",
+                    subtitle: "Let Sparkle check the signed appcast in the background.",
+                    systemImage: "calendar.badge.clock",
+                    isOn: automaticUpdateChecksBinding
+                )
+                .disabled(!model.softwareUpdateState.isConfigured)
+
+                ToggleRow(
+                    title: "Download updates automatically",
+                    subtitle: "Allow Sparkle to download and install signed updates after background checks.",
+                    systemImage: "square.and.arrow.down",
+                    isOn: automaticUpdateDownloadsBinding
+                )
+                .disabled(!model.softwareUpdateState.isConfigured || !model.softwareUpdateState.allowsAutomaticUpdates)
+
+                Divider()
+
+                SmoothButton("Check for Updates", systemImage: "arrow.triangle.2.circlepath") {
+                    model.checkForSoftwareUpdates()
+                }
+                .disabled(!model.softwareUpdateState.canCheckForUpdates)
+            }
+        }
+    }
+
     private var aboutPane: some View {
         VStack(alignment: .leading, spacing: 18) {
             PaneHeader(
@@ -366,6 +425,17 @@ struct SettingsView: View {
         return model.battery.isOnACPower ? "powerplug.fill" : "battery.100percent"
     }
 
+    private var appVersionText: String {
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Unknown"
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String
+
+        guard let build, !build.isEmpty else {
+            return version
+        }
+
+        return "\(version) (\(build))"
+    }
+
     private var batteryCutoffBinding: Binding<Double> {
         Binding(
             get: { Double(model.settings.batteryCutoffPercent) },
@@ -373,6 +443,24 @@ struct SettingsView: View {
                 model.updateSettings { settings in
                     settings.batteryCutoffPercent = Int(value.rounded())
                 }
+            }
+        )
+    }
+
+    private var automaticUpdateChecksBinding: Binding<Bool> {
+        Binding(
+            get: { model.softwareUpdateState.automaticallyChecksForUpdates },
+            set: { value in
+                model.setAutomaticallyChecksForUpdates(value)
+            }
+        )
+    }
+
+    private var automaticUpdateDownloadsBinding: Binding<Bool> {
+        Binding(
+            get: { model.softwareUpdateState.automaticallyDownloadsUpdates },
+            set: { value in
+                model.setAutomaticallyDownloadsUpdates(value)
             }
         )
     }
@@ -411,6 +499,7 @@ private enum SettingsPane: String, CaseIterable, Identifiable {
     case general
     case battery
     case behavior
+    case updates
     case about
 
     var id: String { rawValue }
@@ -423,6 +512,8 @@ private enum SettingsPane: String, CaseIterable, Identifiable {
             "Battery"
         case .behavior:
             "Behavior"
+        case .updates:
+            "Updates"
         case .about:
             "Safety"
         }
@@ -436,6 +527,8 @@ private enum SettingsPane: String, CaseIterable, Identifiable {
             "battery.75percent"
         case .behavior:
             "slider.horizontal.3"
+        case .updates:
+            "arrow.triangle.2.circlepath"
         case .about:
             "shield.checkered"
         }
