@@ -1,9 +1,15 @@
+import { dict } from './i18n-dict.mjs';
+
 function copyToClipboard(text, button) {
   navigator.clipboard.writeText(text).then(() => {
     const original = button.textContent;
-    button.textContent = button.dataset.i18n === 'install.copy' ? original : original;
+    const lang = document.documentElement.lang || 'en';
+    button.textContent = dict[lang]['install.copied'] || 'Copied!';
     button.classList.add('copied');
-    setTimeout(() => button.classList.remove('copied'), 1500);
+    setTimeout(() => {
+      button.textContent = original;
+      button.classList.remove('copied');
+    }, 1500);
   }).catch((error) => {
     console.warn('Lid Awake: clipboard write failed.', error);
   });

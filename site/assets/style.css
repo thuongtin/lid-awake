@@ -93,6 +93,8 @@ section { padding: 88px 0; scroll-margin-top: 88px; }
   height: 68px;
 }
 .logo { display: flex; align-items: center; gap: 10px; color: var(--fg-bright); }
+.logo-mark { width: 22px; height: 22px; display: inline-block; flex-shrink: 0; vertical-align: middle; }
+.logo .logo-mark { width: 30px; height: 30px; }
 .logo-text { font-weight: 600; }
 .version-badge {
   font-family: var(--font-mono);
@@ -192,40 +194,13 @@ section { padding: 88px 0; scroll-margin-top: 88px; }
 
 /* How it works */
 .how-intro { color: var(--fg-muted); max-width: 60ch; }
-.trust-flow {
-  display: flex;
-  align-items: center;
-  gap: 18px;
-  flex-wrap: wrap;
-  margin: 36px 0 20px;
-}
-.flow-node {
-  background: var(--bg-raised);
-  border: 1px solid var(--border-strong);
-  border-radius: 10px;
-  padding: 16px 20px;
-}
-.flow-title { font-family: var(--font-mono); font-size: 0.9rem; color: var(--fg-bright); margin: 0; }
-.flow-sub { font-size: 0.75rem; color: var(--fg-dim); margin: 0.3em 0 0; }
-.flow-arrow {
-  font-family: var(--font-mono);
-  font-size: 0.7rem;
-  color: var(--fg-dim);
-}
-.flow-note { font-family: var(--font-mono); font-size: 0.8rem; color: var(--fg-dim); max-width: 70ch; }
-.does-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 32px;
-  margin-top: 32px;
-}
-.does-col ul, .doesnt-col ul { list-style: none; padding: 0; margin: 0; }
-.does-col li, .doesnt-col li {
+.does-list { margin-top: 32px; max-width: 640px; }
+.does-list ul { list-style: none; padding: 0; margin: 0; }
+.does-list li {
   padding: 12px 0;
   border-top: 1px solid var(--border);
   color: var(--fg-muted);
 }
-.trust-note { color: var(--fg-dim); font-size: 0.85rem; margin-top: 24px; max-width: 70ch; }
 
 /* Specs */
 .specs { background: var(--bg-raised); }
@@ -270,8 +245,15 @@ section { padding: 88px 0; scroll-margin-top: 88px; }
   padding: 0.35em 0.7em;
   cursor: pointer;
   flex-shrink: 0;
+  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
 }
 .copy-btn:hover { color: var(--fg-bright); border-color: var(--fg-dim); }
+.copy-btn.copied {
+  background: var(--accent);
+  color: var(--accent-ink);
+  border-color: var(--accent);
+  transform: scale(1.05);
+}
 .install-card ol { color: var(--fg-muted); padding-left: 1.2em; }
 .install-footnote { font-family: var(--font-mono); font-size: 0.75rem; color: var(--fg-dim); margin-top: 24px; }
 
@@ -312,7 +294,6 @@ section { padding: 88px 0; scroll-margin-top: 88px; }
 @media (max-width: 900px) {
   .hero-inner { grid-template-columns: 1fr; }
   .features-grid { grid-template-columns: repeat(2, 1fr); }
-  .does-grid { grid-template-columns: 1fr; }
   .footer-inner { grid-template-columns: 1fr 1fr; }
 }
 

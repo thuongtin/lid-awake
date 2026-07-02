@@ -59,24 +59,8 @@ if (typeof gsap !== 'undefined' && typeof ScrollTrigger !== 'undefined') {
     revealBatch('.feature-card', { scale: 0.97 });
 
     // How it works.
-    reveal('.how .eyebrow, .how h2, .how-intro');
-    gsap.timeline({
-      scrollTrigger: {
-        trigger: '.trust-flow',
-        start: 'top 80%',
-        toggleActions: 'play none none none',
-      },
-      defaults: { ease: 'power2.out', duration: 0.5 },
-    })
-      .from('.trust-flow .flow-node:nth-child(1)', { y: 16, autoAlpha: 0 })
-      .from('.trust-flow .flow-arrow:nth-child(2)', { autoAlpha: 0, duration: 0.3 }, '-=0.15')
-      .from('.trust-flow .flow-node:nth-child(3)', { y: 16, autoAlpha: 0 }, '-=0.1')
-      .from('.trust-flow .flow-arrow:nth-child(4)', { autoAlpha: 0, duration: 0.3 }, '-=0.15')
-      .from('.trust-flow .flow-node:nth-child(5)', { y: 16, autoAlpha: 0 }, '-=0.1');
-    reveal('.flow-note');
-    revealBatch('.does-col li', { y: 14, duration: 0.4, stagger: 0.06 });
-    revealBatch('.doesnt-col li', { y: 14, duration: 0.4, stagger: 0.06 });
-    reveal('.trust-note');
+    reveal('.how .eyebrow, .how h2, .how-intro, .does-list h3');
+    revealBatch('.does-list li', { y: 14, duration: 0.4, stagger: 0.06 });
 
     // Specs.
     reveal('.specs .eyebrow, .specs h2');

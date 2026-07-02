@@ -6,9 +6,7 @@
 <title>Lid Awake: a native macOS wake utility for developers</title>
 <meta name="description" content="Lid Awake keeps your Mac awake while you work, even with the lid closed. Free, open source, notarized by Apple.">
 <link rel="canonical" href="https://lidawake.thuongtin.com/">
-<link rel="icon" type="image/png" sizes="32x32" href="./assets/icons/favicon-32.png">
-<link rel="icon" type="image/png" sizes="64x64" href="./assets/icons/favicon-32@2x.png">
-<link rel="apple-touch-icon" href="./assets/icons/apple-touch-icon.png">
+<link rel="icon" type="image/svg+xml" href="./assets/icons/moon-mark.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet">
@@ -18,6 +16,7 @@
 <header class="site-header">
   <div class="container header-inner">
     <a class="logo" href="#top">
+      <img class="logo-mark" src="./assets/icons/moon-mark.svg" alt="" width="30" height="30">
       <span class="logo-text">Lid Awake</span>
       <span class="version-badge" id="version-badge">v0.1.2</span>
     </a>
@@ -50,7 +49,7 @@
       <p class="hero-subtitle" data-i18n="hero.subtitle">Lid Awake holds off idle sleep while you work, and lets you keep going with the lid shut. You always have explicit, reversible control over what changes.</p>
       <div class="hero-actions">
         <a class="btn btn-primary download-link" href="https://github.com/thuongtin/lid-awake/releases" data-i18n="hero.ctaDownload">Download for Mac</a>
-        <code class="btn btn-secondary">brew install --cask lid-awake</code>
+        <a class="btn btn-secondary" href="#install" data-i18n="hero.ctaBrew">Install via Homebrew</a>
       </div>
       <p class="hero-footnote" data-i18n="hero.footnote">Free &amp; open source · Notarized by Apple · No hidden sudo</p>
     </div>
@@ -59,7 +58,7 @@
         <span class="dot dot-red"></span><span class="dot dot-yellow"></span><span class="dot dot-green"></span>
         <span class="terminal-title">lid-awake · zsh</span>
       </div>
-      <pre class="terminal-body"><code>$ brew install --cask lid-awake
+      <pre class="terminal-body"><code>$ brew tap thuongtin/tap &amp;&amp; brew install --cask lid-awake
 ==&gt; Downloading lid-awake
 ==&gt; Installing Cask lid-awake
 lid-awake was successfully installed.
@@ -118,48 +117,18 @@ PreventUserIdleSystemSleep 1</code></pre>
 <section class="how" id="how">
   <div class="container">
     <p class="eyebrow" data-i18n="how.eyebrow">HOW IT WORKS</p>
-    <h2 data-i18n="how.heading">Transparent limits, on purpose</h2>
-    <p class="how-intro" data-i18n="how.intro">Lid Awake is explicit about what it changes on your Mac, and just as explicit about what it won't do.</p>
+    <h2 data-i18n="how.heading">Simple, and it stays out of your way</h2>
+    <p class="how-intro" data-i18n="how.intro">Lid Awake runs quietly in the background and only asks for your approval once, when you turn on closed-lid mode.</p>
 
-    <div class="trust-flow">
-      <div class="flow-node">
-        <p class="flow-title" data-i18n="how.flowApp">Lid Awake.app</p>
-        <p class="flow-sub" data-i18n="how.flowAppSub">signed binary</p>
-      </div>
-      <div class="flow-arrow"><span data-i18n="how.flowXpc">XPC · Team ID</span></div>
-      <div class="flow-node">
-        <p class="flow-title" data-i18n="how.flowHelper">Lid Awake Helper</p>
-        <p class="flow-sub" data-i18n="how.flowHelperSub">LaunchDaemon</p>
-      </div>
-      <div class="flow-arrow"><span data-i18n="how.flowApproved">approved</span></div>
-      <div class="flow-node">
-        <p class="flow-title" data-i18n="how.flowPmset">pmset -a disablesleep</p>
-        <p class="flow-sub" data-i18n="how.flowPmsetSub">closed-lid mode</p>
-      </div>
+    <div class="does-list">
+      <h3 data-i18n="how.doesHeading">What you get</h3>
+      <ul>
+        <li data-i18n="how.does1">Keeps your Mac awake for as long as you need it.</li>
+        <li data-i18n="how.does2">Works with the lid closed, once you approve it in System Settings.</li>
+        <li data-i18n="how.does3">Returns to normal sleep the moment you turn it off, pause, or quit.</li>
+        <li data-i18n="how.does4">Automatically stops on low battery or Low Power Mode, so it never drains your battery.</li>
+      </ul>
     </div>
-    <p class="flow-note" data-i18n="how.note">macOS re-verifies the helper for the life of the connection (bundle ID, Apple anchor, and Team ID) via setCodeSigningRequirement. Nothing runs until you approve it in System Settings.</p>
-
-    <div class="does-grid">
-      <div class="does-col">
-        <h3 data-i18n="how.doesHeading">What it does</h3>
-        <ul>
-          <li data-i18n="how.does1">Holds a standard macOS idle-sleep assertion while enabled.</li>
-          <li data-i18n="how.does2">Asks a macOS-approved helper to run the documented pmset -a disablesleep command, only once you approve it.</li>
-          <li data-i18n="how.does3">Restores normal sleep behavior the moment you disable, pause, or quit.</li>
-          <li data-i18n="how.does4">Releases every assertion automatically on low battery or Low Power Mode.</li>
-        </ul>
-      </div>
-      <div class="doesnt-col">
-        <h3 data-i18n="how.doesntHeading">What it won't do</h3>
-        <ul>
-          <li data-i18n="how.doesnt1">Never runs sudo from the app.</li>
-          <li data-i18n="how.doesnt2">Never installs a kernel extension or driver.</li>
-          <li data-i18n="how.doesnt3">Never changes closed-lid behavior silently. Approval comes first.</li>
-          <li data-i18n="how.doesnt4">Never claims a sleep state it didn't set.</li>
-        </ul>
-      </div>
-    </div>
-    <p class="trust-note" data-i18n="how.trustnote">The privileged helper only accepts requests from Lid Awake's own signed binary, re-verified by Team ID for the life of the connection.</p>
   </div>
 </section>
 
@@ -228,6 +197,7 @@ PreventUserIdleSystemSleep 1</code></pre>
 <footer class="site-footer">
   <div class="container footer-inner">
     <div class="footer-brand">
+      <img class="logo-mark" src="./assets/icons/moon-mark.svg" alt="" width="22" height="22">
       <span class="logo-text">Lid Awake</span>
       <p data-i18n="footer.tagline">A native macOS menu bar utility.</p>
       <p class="footer-badge" data-i18n="footer.badge">arm64 · macOS 14+</p>
