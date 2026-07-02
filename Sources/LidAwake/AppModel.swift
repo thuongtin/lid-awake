@@ -553,15 +553,20 @@ final class AppModel: ObservableObject {
 
     func evaluate() {
         logger.debug("evaluate begin")
-        battery = batteryMonitor.currentState()
+        let nextBattery = batteryMonitor.currentState()
+        if battery != nextBattery {
+            battery = nextBattery
+        }
         logger.debug("evaluate battery complete")
-        sessions = manualHoldSessions(now: Date())
+        let nextSessions = manualHoldSessions(now: Date())
+        if sessions.map(\.id) != nextSessions.map(\.id) {
+            sessions = nextSessions
+        }
         previousStatus = status
-        status = coordinator.update(
-            settings: settings,
-            sessions: sessions,
-            battery: battery
-        )
+        let nextStatus = coordinator.update(settings: settings, sessions: nextSessions, battery: nextBattery)
+        if status != nextStatus {
+            status = nextStatus
+        }
         if status != previousStatus {
             logger.info(
                 "status changed enabled=\(self.settings.enabled) sessions=\(self.sessions.count) batteryPercent=\(self.battery.percent ?? -1) ac=\(self.battery.isOnACPower) charging=\(self.battery.isCharging) lowPower=\(self.battery.isLowPowerModeEnabled) status=\(self.status.displayText, privacy: .public)"
@@ -618,7 +623,10 @@ final class AppModel: ObservableObject {
     }
 
     private func syncClosedLidStatus() {
-        closedLidStatus = closedLidStatusReader.readClosedLidStatus()
+        let next = closedLidStatusReader.readClosedLidStatus()
+        if closedLidStatus != next {
+            closedLidStatus = next
+        }
     }
 
     private func loadClosedLidOwnershipRecord() {
@@ -675,6 +683,11 @@ final class AppModel: ObservableObject {
         }
 
         syncClosedLidHelperStatus()
+
+        guard desired || forceDisable || appEnabledClosedLidMode else {
+            return
+        }
+
         syncClosedLidStatus()
 
         if desired {

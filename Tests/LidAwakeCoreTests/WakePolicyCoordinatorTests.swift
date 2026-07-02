@@ -173,4 +173,25 @@ final class WakePolicyCoordinatorTests: XCTestCase {
             XCTFail("Expected holding for remaining working session")
         }
     }
+
+    func testRepeatedUpdatesWithSameSessionsKeepStableHoldStatus() {
+        let clock = FakeClock()
+        let power = FakePowerController()
+        let coordinator = WakePolicyCoordinator(powerController: power, clock: clock)
+
+        let first = coordinator.update(
+            settings: .defaults,
+            sessions: [session()],
+            battery: BatteryState(percent: 80, isCharging: false, isOnACPower: false, isLowPowerModeEnabled: false)
+        )
+
+        clock.advance(seconds: 5)
+        let second = coordinator.update(
+            settings: .defaults,
+            sessions: [session()],
+            battery: BatteryState(percent: 80, isCharging: false, isOnACPower: false, isLowPowerModeEnabled: false)
+        )
+
+        XCTAssertEqual(first, second)
+    }
 }

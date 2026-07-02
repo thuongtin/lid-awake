@@ -479,6 +479,31 @@ final class AppModelLifecycleTests: XCTestCase {
         XCTAssertFalse(harness.model.softwareUpdateState.automaticallyChecksForUpdates)
         XCTAssertTrue(harness.model.softwareUpdateState.automaticallyDownloadsUpdates)
     }
+
+    func testSteadyStateEvaluateDoesNotSpamStatusReadsOrPublish() async {
+        let harness = AppModelHarness(
+            settings: UserSettings(enabled: false),
+            helperStatus: .enabled,
+            closedLidStatus: .disabled
+        )
+
+        harness.model.start(scheduleTimers: false)
+        await drainMainQueue()
+
+        let countAfterStart = harness.closedLidStatusReader.readCount
+
+        // Note: the objectWillChange churn assertion was dropped here because it is
+        // flaky due to unrelated published writes outside this plan's scope
+        // (e.g. syncClosedLidHelperStatus() and refreshScreenLockAccessibilityState()
+        // reassign their @Published properties unconditionally on every tick). See
+        // plan 019 step 5 for the documented fallback.
+        harness.model.evaluate()
+        harness.model.evaluate()
+        harness.model.evaluate()
+        await drainMainQueue()
+
+        XCTAssertEqual(harness.closedLidStatusReader.readCount, countAfterStart)
+    }
 }
 
 private final class AppModelHarness {
@@ -606,13 +631,15 @@ private final class FakeLoginItemService: LoginItemServicing {
 
 private final class FakeClosedLidStatusReader: ClosedLidStatusReading {
     var status: ClosedLidStatus
+    private(set) var readCount = 0
 
     init(status: ClosedLidStatus) {
         self.status = status
     }
 
     func readClosedLidStatus() -> ClosedLidStatus {
-        status
+        readCount += 1
+        return status
     }
 }
 

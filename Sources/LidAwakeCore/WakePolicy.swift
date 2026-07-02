@@ -140,12 +140,21 @@ public final class WakePolicyCoordinator {
         let activeSessions = sessions.filter { $0.state == .working }
         if !activeSessions.isEmpty {
             idleSince = nil
-            let reason = WakeHoldReason(
-                activeSessionIDs: activeSessions.map(\.id).sorted(),
-                activeAgentNames: activeSessions.map(\.displayName).sorted(),
-                startedAt: now,
-                note: "Manual hold is active"
-            )
+            let activeIDs = activeSessions.map(\.id).sorted()
+            let activeNames = activeSessions.map(\.displayName).sorted()
+            let reason: WakeHoldReason
+            if let current = currentHoldReason,
+               current.activeSessionIDs == activeIDs,
+               current.activeAgentNames == activeNames {
+                reason = current
+            } else {
+                reason = WakeHoldReason(
+                    activeSessionIDs: activeIDs,
+                    activeAgentNames: activeNames,
+                    startedAt: now,
+                    note: "Manual hold is active"
+                )
+            }
 
             do {
                 try powerController.acquire(
