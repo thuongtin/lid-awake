@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lid Awake: a native macOS wake utility for developers</title>
+<meta name="description" content="Lid Awake keeps your Mac awake while you work, even with the lid closed. Free, open source, notarized by Apple.">
+<link rel="canonical" href="https://lidawake.thuongtin.com/">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230E0D0B'/%3E%3Ccircle cx='12' cy='16' r='5' fill='%23F0AE45'/%3E%3Ccircle cx='21' cy='16' r='5' fill='none' stroke='%23F0AE45' stroke-width='2'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<link rel="stylesheet" href="./assets/style.css">
+</head>
+<body>
+<header class="site-header">
+  <div class="container header-inner">
+    <a class="logo" href="#top">
+      <span class="logo-mark" aria-hidden="true"></span>
+      <span class="logo-text">Lid Awake</span>
+      <span class="version-badge" id="version-badge">v0.1.2</span>
+    </a>
+    <nav class="site-nav" aria-label="Primary">
+      <a href="#features" data-i18n="nav.features">Features</a>
+      <a href="#how" data-i18n="nav.how">How it works</a>
+      <a href="#specs" data-i18n="nav.specs">Specs</a>
+      <a href="#install" data-i18n="nav.install">Install</a>
+    </nav>
+    <div class="header-actions">
+      <a class="header-github" href="https://github.com/thuongtin/lid-awake" data-i18n="nav.github">GitHub</a>
+      <div class="lang-toggle" role="group" aria-label="Language">
+        <button type="button" class="lang-btn" data-lang="en">EN</button>
+        <button type="button" class="lang-btn" data-lang="vi">VI</button>
+      </div>
+      <a class="btn btn-primary download-link" href="https://github.com/thuongtin/lid-awake/releases" data-i18n="nav.download">Download</a>
+    </div>
+  </div>
+</header>
+
+<main>
+<section class="hero" id="top">
+  <div class="container hero-inner">
+    <div class="hero-copy">
+      <p class="eyebrow" data-i18n="hero.badge">OPEN SOURCE · macOS 14+ · arm64</p>
+      <h1 class="hero-title">
+        <span data-i18n="hero.titleLine1">Keep your Mac working.</span><br>
+        <span class="accent-text" data-i18n="hero.titleLine2">Even with the lid closed.</span>
+      </h1>
+      <p class="hero-subtitle" data-i18n="hero.subtitle">Lid Awake holds off idle sleep while you work, and lets you keep going with the lid shut. You always have explicit, reversible control over what changes.</p>
+      <div class="hero-actions">
+        <a class="btn btn-primary download-link" href="https://github.com/thuongtin/lid-awake/releases" data-i18n="hero.ctaDownload">Download for Mac</a>
+        <code class="btn btn-secondary">brew install --cask lid-awake</code>
+      </div>
+      <p class="hero-footnote" data-i18n="hero.footnote">Free &amp; open source · Notarized by Apple · No hidden sudo</p>
+    </div>
+    <div class="hero-terminal" aria-hidden="true">
+      <div class="terminal-chrome">
+        <span class="dot dot-red"></span><span class="dot dot-yellow"></span><span class="dot dot-green"></span>
+        <span class="terminal-title">lid-awake · zsh</span>
+      </div>
+      <pre class="terminal-body"><code>$ brew install --cask lid-awake
+==&gt; Downloading lid-awake
+==&gt; Installing Cask lid-awake
+lid-awake was successfully installed.
+
+$ pmset -g assertions | grep PreventUserIdle
+PreventUserIdleSystemSleep 1</code></pre>
+    </div>
+  </div>
+</section>
+
+<section class="features" id="features">
+  <div class="container">
+    <p class="eyebrow" data-i18n="features.eyebrow">FEATURES</p>
+    <h2 data-i18n="features.heading">Everything you need. Nothing you don't.</h2>
+    <div class="features-grid">
+      <article class="feature-card">
+        <p class="feature-index">01</p>
+        <p class="feature-tag" data-i18n="features.item1.tag">IOPMAssertion</p>
+        <h3 data-i18n="features.item1.title">Keep awake, on demand</h3>
+        <p data-i18n="features.item1.desc">Toggle it on in the menu bar. Pause for 30 minutes, an hour, or a custom time.</p>
+      </article>
+      <article class="feature-card">
+        <p class="feature-index">02</p>
+        <p class="feature-tag" data-i18n="features.item2.tag">Low Power aware</p>
+        <h3 data-i18n="features.item2.title">Battery-safe by default</h3>
+        <p data-i18n="features.item2.desc">Set a battery cutoff, respect Low Power Mode, or hold awake only while plugged in.</p>
+      </article>
+      <article class="feature-card">
+        <p class="feature-index">03</p>
+        <p class="feature-tag" data-i18n="features.item3.tag">SMAppService</p>
+        <h3 data-i18n="features.item3.title">Closed-lid mode, opt-in</h3>
+        <p data-i18n="features.item3.desc">Approve a signed helper once, then keep working with the lid shut. Turn it off just as easily.</p>
+      </article>
+      <article class="feature-card">
+        <p class="feature-index">04</p>
+        <p class="feature-tag" data-i18n="features.item4.tag">pmset display</p>
+        <h3 data-i18n="features.item4.title">Display on or off, your call</h3>
+        <p data-i18n="features.item4.desc">Choose whether the screen stays lit or goes dark when the lid closes.</p>
+      </article>
+      <article class="feature-card">
+        <p class="feature-index">05</p>
+        <p class="feature-tag" data-i18n="features.item5.tag">CGSession</p>
+        <h3 data-i18n="features.item5.title">Lock on close, if you want it</h3>
+        <p data-i18n="features.item5.desc">Ask macOS to lock the screen the moment the lid shuts.</p>
+      </article>
+      <article class="feature-card">
+        <p class="feature-index">06</p>
+        <p class="feature-tag" data-i18n="features.item6.tag">Sparkle 2 · EdDSA</p>
+        <h3 data-i18n="features.item6.title">Signed background updates</h3>
+        <p data-i18n="features.item6.desc">Sparkle-powered update checks: signed, notarized, and checked right from the menu bar.</p>
+      </article>
+    </div>
+  </div>
+</section>
+
+<section class="how" id="how">
+  <div class="container">
+    <p class="eyebrow" data-i18n="how.eyebrow">HOW IT WORKS</p>
+    <h2 data-i18n="how.heading">Transparent limits, on purpose</h2>
+    <p class="how-intro" data-i18n="how.intro">Lid Awake is explicit about what it changes on your Mac, and just as explicit about what it won't do.</p>
+
+    <div class="trust-flow">
+      <div class="flow-node">
+        <p class="flow-title" data-i18n="how.flowApp">Lid Awake.app</p>
+        <p class="flow-sub" data-i18n="how.flowAppSub">signed binary</p>
+      </div>
+      <div class="flow-arrow"><span data-i18n="how.flowXpc">XPC · Team ID</span></div>
+      <div class="flow-node">
+        <p class="flow-title" data-i18n="how.flowHelper">Lid Awake Helper</p>
+        <p class="flow-sub" data-i18n="how.flowHelperSub">LaunchDaemon</p>
+      </div>
+      <div class="flow-arrow"><span data-i18n="how.flowApproved">approved</span></div>
+      <div class="flow-node">
+        <p class="flow-title" data-i18n="how.flowPmset">pmset -a disablesleep</p>
+        <p class="flow-sub" data-i18n="how.flowPmsetSub">closed-lid mode</p>
+      </div>
+    </div>
+    <p class="flow-note" data-i18n="how.note">macOS re-verifies the helper for the life of the connection (bundle ID, Apple anchor, and Team ID) via setCodeSigningRequirement. Nothing runs until you approve it in System Settings.</p>
+
+    <div class="does-grid">
+      <div class="does-col">
+        <h3 data-i18n="how.doesHeading">What it does</h3>
+        <ul>
+          <li data-i18n="how.does1">Holds a standard macOS idle-sleep assertion while enabled.</li>
+          <li data-i18n="how.does2">Asks a macOS-approved helper to run the documented pmset -a disablesleep command, only once you approve it.</li>
+          <li data-i18n="how.does3">Restores normal sleep behavior the moment you disable, pause, or quit.</li>
+          <li data-i18n="how.does4">Releases every assertion automatically on low battery or Low Power Mode.</li>
+        </ul>
+      </div>
+      <div class="doesnt-col">
+        <h3 data-i18n="how.doesntHeading">What it won't do</h3>
+        <ul>
+          <li data-i18n="how.doesnt1">Never runs sudo from the app.</li>
+          <li data-i18n="how.doesnt2">Never installs a kernel extension or driver.</li>
+          <li data-i18n="how.doesnt3">Never changes closed-lid behavior silently. Approval comes first.</li>
+          <li data-i18n="how.doesnt4">Never claims a sleep state it didn't set.</li>
+        </ul>
+      </div>
+    </div>
+    <p class="trust-note" data-i18n="how.trustnote">The privileged helper only accepts requests from Lid Awake's own signed binary, re-verified by Team ID for the life of the connection.</p>
+  </div>
+</section>
+
+<section class="specs" id="specs">
+  <div class="container">
+    <p class="eyebrow" data-i18n="specs.eyebrow">SPECS</p>
+    <h2 data-i18n="specs.heading">Under the hood</h2>
+    <table class="specs-table">
+      <tbody>
+        <tr><td data-i18n="specs.row1.label">PLATFORM</td><td data-i18n="specs.row1.value">macOS 14 or later</td></tr>
+        <tr><td data-i18n="specs.row2.label">ARCHITECTURE</td><td data-i18n="specs.row2.value">arm64 · Apple Silicon</td></tr>
+        <tr><td data-i18n="specs.row3.label">WAKE METHOD</td><td data-i18n="specs.row3.value">IOPMAssertion · PreventUserIdleSystemSleep</td></tr>
+        <tr><td data-i18n="specs.row4.label">CLOSED-LID</td><td data-i18n="specs.row4.value">pmset -a disablesleep (approved helper)</td></tr>
+        <tr><td data-i18n="specs.row5.label">HELPER</td><td data-i18n="specs.row5.value">LaunchDaemon · SMAppService · XPC</td></tr>
+        <tr><td data-i18n="specs.row6.label">UPDATES</td><td data-i18n="specs.row6.value">Sparkle 2 · signed appcast (EdDSA)</td></tr>
+        <tr><td data-i18n="specs.row7.label">DISTRIBUTION</td><td data-i18n="specs.row7.value">Developer ID · Notarized · DMG + zip · SHA-256</td></tr>
+        <tr><td data-i18n="specs.row8.label">LICENSE</td><td data-i18n="specs.row8.value">MIT</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="install" id="install">
+  <div class="container install-grid">
+    <div class="install-card">
+      <p class="eyebrow" data-i18n="install.eyebrow">INSTALL</p>
+      <h2 data-i18n="install.heading">Up and running in a minute</h2>
+      <div class="install-method">
+        <p class="install-method-label" data-i18n="install.homebrewLabel">Homebrew</p>
+        <div class="code-row">
+          <code id="brew-command">brew tap thuongtin/tap &amp;&amp; brew install --cask lid-awake</code>
+          <button type="button" class="copy-btn" data-copy-target="brew-command" data-i18n="install.copy">Copy</button>
+        </div>
+      </div>
+      <div class="install-method">
+        <p class="install-method-label" data-i18n="install.manualLabel">Manual download</p>
+        <ol>
+          <li data-i18n="install.step1">Download the DMG and its .sha256 file from GitHub Releases.</li>
+          <li data-i18n="install.step2">Verify the checksum:</li>
+        </ol>
+        <div class="code-row">
+          <code id="shasum-command">shasum -a 256 -c LidAwake-0.1.2-macos.dmg.sha256</code>
+          <button type="button" class="copy-btn" data-copy-target="shasum-command" data-i18n="install.copy">Copy</button>
+        </div>
+        <ol start="3">
+          <li data-i18n="install.step3">Open the DMG and drag Lid Awake to Applications.</li>
+        </ol>
+      </div>
+      <p class="install-footnote" data-i18n="install.footnote">macOS 14 or later · Apple Silicon (arm64) only</p>
+    </div>
+  </div>
+</section>
+
+<section class="cta-banner">
+  <div class="container">
+    <h2 data-i18n="cta.heading">Stop babysitting your Mac.</h2>
+    <p data-i18n="cta.subtitle">Free, open source, and built to stay out of your way.</p>
+    <div class="cta-actions">
+      <a class="btn btn-primary download-link" href="https://github.com/thuongtin/lid-awake/releases" data-i18n="cta.download">Download for Mac</a>
+      <a class="btn btn-ghost" href="https://github.com/thuongtin/lid-awake" data-i18n="cta.viewsource">View source</a>
+    </div>
+  </div>
+</section>
+</main>
+
+<footer class="site-footer">
+  <div class="container footer-inner">
+    <div class="footer-brand">
+      <span class="logo-mark" aria-hidden="true"></span>
+      <span class="logo-text">Lid Awake</span>
+      <p data-i18n="footer.tagline">A native macOS menu bar utility.</p>
+      <p class="footer-badge" data-i18n="footer.badge">arm64 · macOS 14+</p>
+    </div>
+    <div class="footer-col">
+      <p class="footer-col-label" data-i18n="footer.productLabel">Product</p>
+      <a href="#features" data-i18n="nav.features">Features</a>
+      <a href="#specs" data-i18n="nav.specs">Specs</a>
+      <a href="#install" data-i18n="nav.install">Install</a>
+    </div>
+    <div class="footer-col">
+      <p class="footer-col-label" data-i18n="footer.docsLabel">Docs</p>
+      <a href="https://github.com/thuongtin/lid-awake/blob/main/docs/power-model.md" data-i18n="footer.docs1">Power Model</a>
+      <a href="https://github.com/thuongtin/lid-awake/blob/main/docs/developer-permissions.md" data-i18n="footer.docs2">Developer Permissions</a>
+      <a href="https://github.com/thuongtin/lid-awake/blob/main/docs/releasing.md" data-i18n="footer.docs3">Releasing</a>
+      <a href="https://github.com/thuongtin/lid-awake/blob/main/docs/troubleshooting.md" data-i18n="footer.docs4">Troubleshooting</a>
+    </div>
+    <div class="footer-col">
+      <p class="footer-col-label" data-i18n="footer.projectLabel">Project</p>
+      <a href="https://github.com/thuongtin/lid-awake/blob/main/CHANGELOG.md" data-i18n="footer.project1">Changelog</a>
+      <a href="https://github.com/thuongtin/lid-awake/blob/main/SECURITY.md" data-i18n="footer.project2">Security Policy</a>
+      <a href="https://github.com/thuongtin/lid-awake/blob/main/SUPPORT.md" data-i18n="footer.project3">Support</a>
+      <a href="https://github.com/thuongtin/lid-awake/blob/main/LICENSE" data-i18n="footer.project4">License (MIT)</a>
+    </div>
+  </div>
+  <div class="container footer-bottom">
+    <p data-i18n="footer.copyright">© 2026 Lid Awake · MIT licensed.</p>
+  </div>
+</footer>
+
+<script type="module" src="./assets/i18n.js"></script>
+<script type="module" src="./assets/version.js"></script>
+<script type="module" src="./assets/main.js"></script>
+</body>
+</html>

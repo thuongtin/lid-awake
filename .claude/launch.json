@@ -1,0 +1,29 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "design-preview",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "4173",
+        "--directory",
+        "/private/tmp/claude-501/-Users-ethan-Documents-Codex-2026-06-24-test-android-apps-android-emulator-qa/e8dbb6b2-077e-40ff-a242-3d965a052cfe/scratchpad/design-preview"
+      ],
+      "port": 4173
+    },
+    {
+      "name": "site-preview",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "4174",
+        "--directory",
+        "site"
+      ],
+      "port": 4174
+    }
+  ]
+}
