@@ -129,6 +129,7 @@ The appcast is written to `dist/releases/appcast/appcast.xml`. Sparkle uses the 
 
 ## Documentation
 
+- [Agent Guide](AGENTS.md): verification commands, danger zones, and conventions for AI coding agents.
 - [Power Model](docs/power-model.md): power-management behavior, helper trust boundary, and manual QA.
 - [Developer Permissions Guide](docs/developer-permissions.md): helper approval, Accessibility, signing, and local permission diagnostics.
 - [Releasing](docs/releasing.md): packaging, signing, checksum, and notarization guidance.
