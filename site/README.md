@@ -16,11 +16,22 @@ Then open `http://localhost:4174`. The Cloudflare geo signal (`window.__LID_AWAK
 node --test site/tests/*.test.mjs
 ```
 
-## Deployment (manual, one-time, done by the Cloudflare account owner)
+## Deployment
 
-1. In the Cloudflare dashboard (account `ho@thuongtin.com`), create a Pages project connected to this GitHub repository, with root directory `site/` and no build command.
-2. Add the custom domain `lidawake.thuongtin.com` to the Pages project and create the corresponding DNS record in the `thuongtin.com` zone.
-3. After the first deploy, verify the page resolves the Cloudflare geo header correctly (Vietnamese copy for VN traffic) and that the version badge and download links reflect the latest GitHub release.
+The Pages project (`lidawake`, account `ho@thuongtin.com`) is created and deployed via Wrangler direct upload, no Git connection:
+
+```bash
+cd site && wrangler pages deploy . --project-name=lidawake --branch=main
+```
+
+Run this from inside `site/` (not the repo root) so Wrangler finds `functions/` at the deploy root and bundles `_middleware.js` as a Pages Function. Running it from the repo root with `wrangler pages deploy site` silently skips the Function.
+
+The live URL is `https://lidawake.pages.dev`, confirmed serving 200 with the geo script injected (`window.__LID_AWAKE_GEO__`) and the version badge/download links reflecting the latest GitHub release.
+
+### Remaining manual step (one-time, done by the Cloudflare account owner)
+
+1. Add the custom domain `lidawake.thuongtin.com` to the Pages project and create the corresponding DNS record in the `thuongtin.com` zone. This cannot be done via the Wrangler CLI (`wrangler pages project` only supports `list`/`create`/`delete`) and the current OAuth token only has `zone:read`, not `zone:edit`, so it must be done in the Cloudflare dashboard.
+2. After the domain is attached, verify the page resolves the Cloudflare geo header correctly (Vietnamese copy for VN traffic) at `https://lidawake.thuongtin.com`.
 
 ## Architecture notes
 
