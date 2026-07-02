@@ -292,7 +292,7 @@ import { fileURLToPath } from 'node:url';
 
 const SITE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SCANNED_EXTENSIONS = new Set(['.html', '.css', '.js', '.mjs', '.md']);
-const EM_DASH = '—';
+const EM_DASH = String.fromCharCode(0x2014);
 
 function collectFiles(dir) {
   const entries = readdirSync(dir);
