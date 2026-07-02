@@ -4,6 +4,8 @@ Lid Awake is a native macOS menu bar app for keeping a Mac awake during delibera
 
 Bundle identifier: `com.thuongtin.LidAwake`.
 
+Website: [lidawake.thuongtin.com](https://lidawake.thuongtin.com).
+
 ## Project Status
 
 Lid Awake is early release software. Public downloads are Developer ID signed, notarized by Apple, and distributed as DMG and zip archives with SHA-256 checksums.
