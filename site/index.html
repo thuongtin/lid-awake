@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Lid Awake: a native macOS wake utility for developers</title>
-<meta name="description" content="Lid Awake keeps your Mac awake while you work, even with the lid closed. Free, open source, notarized by Apple.">
+<title>Lid Awake: close your MacBook while Claude Code and Codex run overnight</title>
+<meta name="description" content="Lid Awake keeps macOS awake after you close the lid, so Claude Code, Codex, and other AI coding agents can keep running overnight. Free, open source, notarized by Apple.">
 <link rel="canonical" href="https://lidawake.thuongtin.com/">
 <link rel="icon" type="image/svg+xml" href="./assets/icons/moon-mark.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -41,30 +41,29 @@
 <section class="hero" id="top">
   <div class="container hero-inner">
     <div class="hero-copy">
-      <p class="eyebrow" data-i18n="hero.badge">OPEN SOURCE · macOS 14+ · arm64</p>
+      <p class="eyebrow" data-i18n="hero.badge">FOR OVERNIGHT VIBE CODING</p>
       <h1 class="hero-title">
-        <span data-i18n="hero.titleLine1">Keep your Mac working.</span><br>
-        <span class="accent-text" data-i18n="hero.titleLine2">Even with the lid closed.</span>
+        <span data-i18n="hero.titleLine1">Your agent can work all night.</span><br>
+        <span class="accent-text" data-i18n="hero.titleLine2">Your MacBook can stay closed.</span>
       </h1>
-      <p class="hero-subtitle" data-i18n="hero.subtitle">Lid Awake holds off idle sleep while you work, and lets you keep going with the lid shut. You always have explicit, reversible control over what changes.</p>
+      <p class="hero-subtitle" data-i18n="hero.subtitle">Claude Code, Codex, and terminal agents often need hours. Lid Awake keeps macOS awake after you close the lid, so overnight runs keep going and normal sleep comes back when you stop.</p>
       <div class="hero-actions">
         <a class="btn btn-primary download-link" href="https://github.com/thuongtin/lid-awake/releases" data-i18n="hero.ctaDownload">Download for Mac</a>
         <a class="btn btn-secondary" href="#install" data-i18n="hero.ctaBrew">Install via Homebrew</a>
       </div>
-      <p class="hero-footnote" data-i18n="hero.footnote">Free &amp; open source · Notarized by Apple · No hidden sudo</p>
+      <p class="hero-footnote" data-i18n="hero.footnote">Close the lid · Keep the run alive · Restore normal sleep</p>
     </div>
     <div class="hero-terminal" aria-hidden="true">
       <div class="terminal-chrome">
         <span class="dot dot-red"></span><span class="dot dot-yellow"></span><span class="dot dot-green"></span>
         <span class="terminal-title">lid-awake · zsh</span>
       </div>
-      <pre class="terminal-body"><code>$ brew tap thuongtin/tap &amp;&amp; brew install --cask lid-awake
-==&gt; Downloading lid-awake
-==&gt; Installing Cask lid-awake
-lid-awake was successfully installed.
+      <pre class="terminal-body"><code>$ codex exec "finish the migration"
+$ claude "fix every failing test"
 
-$ pmset -g assertions | grep PreventUserIdle
-PreventUserIdleSystemSleep 1</code></pre>
+# close the lid
+Lid Awake: agent run stays alive
+macOS sleep: held until you stop</code></pre>
     </div>
   </div>
 </section>
@@ -72,43 +71,43 @@ PreventUserIdleSystemSleep 1</code></pre>
 <section class="features" id="features">
   <div class="container">
     <p class="eyebrow" data-i18n="features.eyebrow">FEATURES</p>
-    <h2 data-i18n="features.heading">Everything you need. Nothing you don't.</h2>
+    <h2 data-i18n="features.heading">For the overnight part of vibe coding.</h2>
     <div class="features-grid">
       <article class="feature-card">
         <p class="feature-index">01</p>
-        <p class="feature-tag" data-i18n="features.item1.tag">IOPMAssertion</p>
-        <h3 data-i18n="features.item1.title">Keep awake, on demand</h3>
-        <p data-i18n="features.item1.desc">Toggle it on in the menu bar. Pause for 30 minutes, an hour, or a custom time.</p>
+        <p class="feature-tag" data-i18n="features.item1.tag">Agent runs</p>
+        <h3 data-i18n="features.item1.title">Start the run. Walk away.</h3>
+        <p data-i18n="features.item1.desc">No babysitting a terminal just because macOS wants to sleep.</p>
       </article>
       <article class="feature-card">
         <p class="feature-index">02</p>
-        <p class="feature-tag" data-i18n="features.item2.tag">Low Power aware</p>
-        <h3 data-i18n="features.item2.title">Battery-safe by default</h3>
-        <p data-i18n="features.item2.desc">Set a battery cutoff, respect Low Power Mode, or hold awake only while plugged in.</p>
+        <p class="feature-tag" data-i18n="features.item2.tag">Overnight sessions</p>
+        <h3 data-i18n="features.item2.title">Wake up to progress</h3>
+        <p data-i18n="features.item2.desc">Keep Codex, Claude Code, or any terminal agent alive while you sleep.</p>
       </article>
       <article class="feature-card">
         <p class="feature-index">03</p>
-        <p class="feature-tag" data-i18n="features.item3.tag">SMAppService</p>
-        <h3 data-i18n="features.item3.title">Closed-lid mode, opt-in</h3>
-        <p data-i18n="features.item3.desc">Approve a signed helper once, then keep working with the lid shut. Turn it off just as easily.</p>
+        <p class="feature-tag" data-i18n="features.item3.tag">Closed-lid helper</p>
+        <h3 data-i18n="features.item3.title">Close the MacBook without killing the job</h3>
+        <p data-i18n="features.item3.desc">Approve a signed helper once, then keep agent work alive with the lid shut.</p>
       </article>
       <article class="feature-card">
         <p class="feature-index">04</p>
-        <p class="feature-tag" data-i18n="features.item4.tag">pmset display</p>
-        <h3 data-i18n="features.item4.title">Display on or off, your call</h3>
-        <p data-i18n="features.item4.desc">Choose whether the screen stays lit or goes dark when the lid closes.</p>
+        <p class="feature-tag" data-i18n="features.item4.tag">Display control</p>
+        <h3 data-i18n="features.item4.title">Dark desk, live terminal</h3>
+        <p data-i18n="features.item4.desc">Let the display sleep while the Mac stays awake, or keep the display on.</p>
       </article>
       <article class="feature-card">
         <p class="feature-index">05</p>
-        <p class="feature-tag" data-i18n="features.item5.tag">CGSession</p>
-        <h3 data-i18n="features.item5.title">Lock on close, if you want it</h3>
-        <p data-i18n="features.item5.desc">Ask macOS to lock the screen the moment the lid shuts.</p>
+        <p class="feature-tag" data-i18n="features.item5.tag">Lock on close</p>
+        <h3 data-i18n="features.item5.title">Security still matters</h3>
+        <p data-i18n="features.item5.desc">Ask macOS to lock the screen when the lid shuts, while the agent keeps running.</p>
       </article>
       <article class="feature-card">
         <p class="feature-index">06</p>
-        <p class="feature-tag" data-i18n="features.item6.tag">Sparkle 2 · EdDSA</p>
-        <h3 data-i18n="features.item6.title">Signed background updates</h3>
-        <p data-i18n="features.item6.desc">Sparkle-powered update checks: signed, notarized, and checked right from the menu bar.</p>
+        <p class="feature-tag" data-i18n="features.item6.tag">Guardrails</p>
+        <h3 data-i18n="features.item6.title">Not an always-on hack</h3>
+        <p data-i18n="features.item6.desc">Battery cutoff, Low Power Mode, pause timers, and one-click restore keep it reversible.</p>
       </article>
     </div>
   </div>
@@ -117,16 +116,16 @@ PreventUserIdleSystemSleep 1</code></pre>
 <section class="how" id="how">
   <div class="container">
     <p class="eyebrow" data-i18n="how.eyebrow">HOW IT WORKS</p>
-    <h2 data-i18n="how.heading">Simple, and it stays out of your way</h2>
-    <p class="how-intro" data-i18n="how.intro">Lid Awake runs quietly in the background and only asks for your approval once, when you turn on closed-lid mode.</p>
+    <h2 data-i18n="how.heading">Made for the moment you want to close the laptop</h2>
+    <p class="how-intro" data-i18n="how.intro">You start an agent run, realize it needs hours, and do not want to leave the MacBook open on your desk. Lid Awake holds the right macOS assertions so the job can continue.</p>
 
     <div class="does-list">
-      <h3 data-i18n="how.doesHeading">What you get</h3>
+      <h3 data-i18n="how.doesHeading">The workflow</h3>
       <ul>
-        <li data-i18n="how.does1">Keeps your Mac awake for as long as you need it.</li>
-        <li data-i18n="how.does2">Works with the lid closed, once you approve it in System Settings.</li>
-        <li data-i18n="how.does3">Returns to normal sleep the moment you turn it off, pause, or quit.</li>
-        <li data-i18n="how.does4">Automatically stops on low battery or Low Power Mode, so it never drains your battery.</li>
+        <li data-i18n="how.does1">Start Claude Code, Codex, or another long-running coding agent.</li>
+        <li data-i18n="how.does2">Turn on Lid Awake from the menu bar before closing the lid.</li>
+        <li data-i18n="how.does3">Let the Mac stay awake while display sleep and lock behavior stay under your control.</li>
+        <li data-i18n="how.does4">When you are done, pause or quit and macOS returns to normal sleep behavior.</li>
       </ul>
     </div>
   </div>
@@ -184,8 +183,8 @@ PreventUserIdleSystemSleep 1</code></pre>
 
 <section class="cta-banner">
   <div class="container">
-    <h2 data-i18n="cta.heading">Stop babysitting your Mac.</h2>
-    <p data-i18n="cta.subtitle">Free, open source, and built to stay out of your way.</p>
+    <h2 data-i18n="cta.heading">Stop leaving your MacBook open all night.</h2>
+    <p data-i18n="cta.subtitle">Let the agent run, close the lid, and come back to results.</p>
     <div class="cta-actions">
       <a class="btn btn-primary download-link" href="https://github.com/thuongtin/lid-awake/releases" data-i18n="cta.download">Download for Mac</a>
       <a class="btn btn-ghost" href="https://github.com/thuongtin/lid-awake" data-i18n="cta.viewsource">View source</a>
@@ -199,7 +198,7 @@ PreventUserIdleSystemSleep 1</code></pre>
     <div class="footer-brand">
       <img class="logo-mark" src="./assets/icons/moon-mark.svg" alt="" width="22" height="22">
       <span class="logo-text">Lid Awake</span>
-      <p data-i18n="footer.tagline">A native macOS menu bar utility.</p>
+      <p data-i18n="footer.tagline">Built for overnight AI coding sessions.</p>
       <p class="footer-badge" data-i18n="footer.badge">arm64 · macOS 14+</p>
     </div>
     <div class="footer-col">
