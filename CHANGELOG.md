@@ -4,6 +4,10 @@ All notable changes to Lid Awake will be documented in this file.
 
 The format follows dated release sections after the first tagged release.
 
+## 0.1.4 - 2026-07-03
+
+- Changed the public website link from `lidawake.thuongtin.com` to `lidawake.pages.dev` across the app, landing page, and documentation.
+
 ## 0.1.3 - 2026-07-03
 
 - Added an About section in Settings showing the app icon, version, bundle identifier, requirements, website and GitHub links, and MIT license, and renamed the previous transparency pane to Safety.

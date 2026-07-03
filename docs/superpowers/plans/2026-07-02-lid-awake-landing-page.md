@@ -10,9 +10,9 @@
 
 ## Global Constraints
 
-- No em dash (—) anywhere in shipped copy, code comments, or docs (EN and VI equally). Use `,`, `:`, `.`, or `·`.
+- No em dash character anywhere in shipped copy, code comments, or docs (EN and VI equally). Use `,`, `:`, `.`, or `·`.
 - No CMS, no build step, no JS framework.
-- Claude does not create/configure the Cloudflare Pages project, DNS record, or custom domain. Document the manual steps only.
+- Claude does not create/configure the Cloudflare Pages project. Document the manual steps only.
 - Only English and Vietnamese are supported.
 - Version badge and download links must degrade gracefully (keep static fallback) if the GitHub API call fails.
 - Language resolution priority: `localStorage` override > `window.__LID_AWAKE_GEO__` (server-injected) > `navigator.language` > default `en`.
@@ -631,7 +631,7 @@ This is the largest task: it produces the visible page. Both `content-integrity.
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Lid Awake: a native macOS wake utility for developers</title>
 <meta name="description" content="Lid Awake keeps your Mac awake while you work, even with the lid closed. Free, open source, notarized by Apple.">
-<link rel="canonical" href="https://lidawake.thuongtin.com/">
+<link rel="canonical" href="https://lidawake.pages.dev/">
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230E0D0B'/%3E%3Ccircle cx='12' cy='16' r='5' fill='%23F0AE45'/%3E%3Ccircle cx='21' cy='16' r='5' fill='none' stroke='%23F0AE45' stroke-width='2'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -1540,7 +1540,7 @@ git commit -m "Add Cloudflare Pages Function to inject edge geo signal"
 ```markdown
 # Lid Awake Landing Page
 
-Static site for `lidawake.thuongtin.com`. No build step: Cloudflare Pages serves this directory as-is, plus `functions/` as Pages Functions.
+Static site for `lidawake.pages.dev`. No build step: Cloudflare Pages serves this directory as-is, plus `functions/` as Pages Functions.
 
 ## Local preview
 
@@ -1559,8 +1559,7 @@ node --test site/tests/*.test.mjs
 ## Deployment (manual, one-time, done by the Cloudflare account owner)
 
 1. In the Cloudflare dashboard (account `ho@thuongtin.com`), create a Pages project connected to this GitHub repository, with root directory `site/` and no build command.
-2. Add the custom domain `lidawake.thuongtin.com` to the Pages project and create the corresponding DNS record in the `thuongtin.com` zone.
-3. After the first deploy, verify the page resolves the Cloudflare geo header correctly (Vietnamese copy for VN traffic) and that the version badge and download links reflect the latest GitHub release.
+2. After the first deploy, verify the default Pages URL `https://lidawake.pages.dev` resolves the Cloudflare geo header correctly (Vietnamese copy for VN traffic) and that the version badge and download links reflect the latest GitHub release.
 
 ## Architecture notes
 
@@ -1582,7 +1581,7 @@ to:
 ```markdown
 Bundle identifier: `com.thuongtin.LidAwake`.
 
-Website: [lidawake.thuongtin.com](https://lidawake.thuongtin.com).
+Website: [lidawake.pages.dev](https://lidawake.pages.dev).
 ```
 
 - [ ] **Step 3: Run the full test suite**
@@ -1596,7 +1595,7 @@ At desktop (1280px) and mobile (375px) widths: scroll the full page, confirm eve
 
 - [ ] **Step 5: Grep the tree for the em dash character as a final human-readable confirmation (mirrors the automated test)**
 
-Run: `grep -rn $'—' site/ || echo "no em dash found"`
+Run: `perl -ne 'print if /\x{2014}/' site/ || echo "no em dash found"`
 Expected: `no em dash found`
 
 - [ ] **Step 6: Commit**

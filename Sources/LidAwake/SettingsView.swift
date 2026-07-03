@@ -470,7 +470,7 @@ struct SettingsView: View {
     private static let appDisplayName = "Lid Awake"
     private static let bundleIdentifier =
         Bundle.main.bundleIdentifier ?? "com.thuongtin.LidAwake"
-    private static let websiteURL = URL(string: "https://lidawake.thuongtin.com")
+    private static let websiteURL = URL(string: "https://lidawake.pages.dev")
     private static let repositoryURL = URL(string: "https://github.com/thuongtin/lid-awake")
     private static let releasesURL = URL(string: "https://github.com/thuongtin/lid-awake/releases")
 

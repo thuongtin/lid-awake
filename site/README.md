@@ -1,6 +1,6 @@
 # Lid Awake Landing Page
 
-Static site for `lidawake.thuongtin.com`. No build step: Cloudflare Pages serves this directory as-is, plus `functions/` as Pages Functions.
+Static site for `lidawake.pages.dev`. No build step: Cloudflare Pages serves this directory as-is, plus `functions/` as Pages Functions.
 
 ## Local preview
 
@@ -27,11 +27,6 @@ cd site && wrangler pages deploy . --project-name=lidawake --branch=main
 Run this from inside `site/` (not the repo root) so Wrangler finds `functions/` at the deploy root and bundles `_middleware.js` as a Pages Function. Running it from the repo root with `wrangler pages deploy site` silently skips the Function.
 
 The live URL is `https://lidawake.pages.dev`, confirmed serving 200 with the geo script injected (`window.__LID_AWAKE_GEO__`) and the version badge/download links reflecting the latest GitHub release.
-
-### Remaining manual step (one-time, done by the Cloudflare account owner)
-
-1. Add the custom domain `lidawake.thuongtin.com` to the Pages project and create the corresponding DNS record in the `thuongtin.com` zone. This cannot be done via the Wrangler CLI (`wrangler pages project` only supports `list`/`create`/`delete`) and the current OAuth token only has `zone:read`, not `zone:edit`, so it must be done in the Cloudflare dashboard.
-2. After the domain is attached, verify the page resolves the Cloudflare geo header correctly (Vietnamese copy for VN traffic) at `https://lidawake.thuongtin.com`.
 
 ## Architecture notes
 

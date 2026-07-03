@@ -7,20 +7,20 @@ Ship a marketing landing page for Lid Awake that:
 1. Reproduces the approved "Lid Awake Landing Tech" design (dark theme, amber accent).
 2. Auto-detects and shows the latest published version and a direct download link, without a manual content edit per release.
 3. Auto-selects English or Vietnamese copy based on the visitor's geographic location, with a manual override the visitor can change at any time.
-4. Contains no em dash (—) anywhere in the shipped copy, per the project's typography rule.
+4. Contains no em dash character anywhere in the shipped copy, per the project's typography rule.
 
 ## Non-goals
 
 - No CMS, no build step, no JS framework. Plain HTML/CSS/JS, matching the complexity of a single static page.
 - No blog, no docs rendering, no contact form.
-- Claude does not create or configure the Cloudflare Pages project, DNS record, or custom domain. Those are manual steps the account owner performs; this spec documents what to configure.
+- Claude does not create or configure the Cloudflare Pages project. That is a manual step the account owner performs; this spec documents what to configure.
 - No support for languages beyond English and Vietnamese.
 
 ## Hosting and domain
 
 - Platform: Cloudflare Pages.
 - Cloudflare account: `ho@thuongtin.com`.
-- Custom domain: `lidawake.thuongtin.com`.
+- Public URL: `lidawake.pages.dev`.
 - Repo layout: Pages project root directory is `site/` inside this repository (monorepo-style, same pattern as `docs/`, `scripts/`, `script/`).
 - No build command; Pages serves `site/` as static output and `site/functions/` as Pages Functions.
 
@@ -66,9 +66,9 @@ Sections, in order: sticky header (logo, version badge, nav, EN/VI toggle, Downl
 
 Priority order, evaluated once on page load:
 
-1. `localStorage.getItem('lidawake-lang')` — set the moment a visitor clicks the EN/VI toggle. Always wins once set.
-2. `window.__LID_AWAKE_GEO__` — a country code injected server-side by `site/functions/_middleware.js`, which reads `request.cf.country` (Cloudflare's edge geo signal, no external API call, no extra network request). `VN` maps to Vietnamese; anything else maps to English.
-3. `navigator.language` — fallback used only when `__LID_AWAKE_GEO__` is absent (e.g. local file preview, or a host that isn't Cloudflare). `vi*` maps to Vietnamese; anything else maps to English.
+1. `localStorage.getItem('lidawake-lang')`: set the moment a visitor clicks the EN/VI toggle. Always wins once set.
+2. `window.__LID_AWAKE_GEO__`: a country code injected server-side by `site/functions/_middleware.js`, which reads `request.cf.country` (Cloudflare's edge geo signal, no external API call, no extra network request). `VN` maps to Vietnamese; anything else maps to English.
+3. `navigator.language`: fallback used only when `__LID_AWAKE_GEO__` is absent (e.g. local file preview, or a host that isn't Cloudflare). `vi*` maps to Vietnamese; anything else maps to English.
 
 Implementation:
 
@@ -89,14 +89,13 @@ Implementation:
 
 ## Copy and typography
 
-- Every string in `index.html` and the `en`/`vi` dictionaries is free of the em dash (—). Existing em dashes in the source design are rewritten using a comma, colon, period, or the middle dot (`·`) already used elsewhere in the design, whichever reads most naturally in context.
+- Every string in `index.html` and the `en`/`vi` dictionaries is free of the em dash character. Existing em dashes in the source design are rewritten using a comma, colon, period, or the middle dot (`·`) already used elsewhere in the design, whichever reads most naturally in context.
 - This applies to English and Vietnamese text equally.
 
 ## Deployment (manual steps, documented in `site/README.md`, not performed by Claude)
 
 1. In Cloudflare dashboard (account `ho@thuongtin.com`), create a Pages project connected to this GitHub repo, root directory `site/`, no build command.
-2. Add custom domain `lidawake.thuongtin.com` to the Pages project and create the corresponding DNS record in the `thuongtin.com` zone.
-3. Verify the deployed page resolves the Cloudflare geo header correctly (Vietnamese for VN traffic) and that the version badge/download link reflect the latest GitHub release.
+2. Verify the default Pages URL `https://lidawake.pages.dev` resolves the Cloudflare geo header correctly (Vietnamese for VN traffic) and that the version badge/download link reflect the latest GitHub release.
 
 ## Testing / verification plan
 
