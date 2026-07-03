@@ -7,7 +7,7 @@ This project can create local test archives without Apple Developer secrets, but
 Create a release configuration app bundle, zip archive, and checksum for a public release:
 
 ```bash
-APP_VERSION=0.1.2 APP_BUILD=11 ./script/package_release.sh
+APP_VERSION=<version> APP_BUILD=<increasing-build> ./script/package_release.sh
 ```
 
 The archive is written to `dist/releases/LidAwake-<version>-macos.zip` with a matching `.sha256` file. The version comes from `CFBundleShortVersionString` in the staged app `Info.plist`, and Sparkle orders updates by `CFBundleVersion`. Always increase `APP_BUILD` for every public archive.
@@ -69,7 +69,7 @@ For a public release, export a Developer ID signing identity before packaging if
 
 ```bash
 export SIGNING_IDENTITY="$DEVELOPER_ID_APPLICATION"
-APP_VERSION=0.1.2 APP_BUILD=11 CONFIGURATION=release ./script/stage_app.sh
+APP_VERSION=<version> APP_BUILD=<increasing-build> CONFIGURATION=release ./script/stage_app.sh
 ```
 
 Use a Developer ID Application certificate for `DEVELOPER_ID_APPLICATION`. Keep the bundle identifiers unchanged:

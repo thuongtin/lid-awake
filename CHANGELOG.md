@@ -4,8 +4,13 @@ All notable changes to Lid Awake will be documented in this file.
 
 The format follows dated release sections after the first tagged release.
 
-## Unreleased
+## 0.1.3 - 2026-07-03
 
+- Added an About section in Settings showing the app icon, version, bundle identifier, requirements, website and GitHub links, and MIT license, and renamed the previous transparency pane to Safety.
+- Reduced idle CPU and battery usage by giving the periodic timers scheduling tolerance so macOS can coalesce their wakeups.
+- Reduced idle work by skipping the per-second closed-lid clamshell reads while keep-awake is disabled.
+- Reduced steady-state process spawns by re-verifying closed-lid status with `pmset` on an interval instead of on every evaluation while holding.
+- Stopped redundant SwiftUI updates by publishing closed-lid helper status, screen lock trust, and lock error only when they actually change.
 - Added Sparkle 2 update checks from the menu bar and Settings, including automatic update check controls.
 - Added Sparkle framework staging, public update key injection, and signed appcast generation for public releases.
 - Disabled Sparkle metadata in local debug staging by default so unreleased builds do not show appcast retrieval errors.

@@ -1,3 +1,4 @@
+import AppKit
 import LidAwakeCore
 import SwiftUI
 
@@ -45,6 +46,8 @@ struct SettingsView: View {
                     behaviorPane
                 case .updates:
                     updatesPane
+                case .safety:
+                    safetyPane
                 case .about:
                     aboutPane
                 }
@@ -364,7 +367,7 @@ struct SettingsView: View {
         }
     }
 
-    private var aboutPane: some View {
+    private var safetyPane: some View {
         VStack(alignment: .leading, spacing: 18) {
             PaneHeader(
                 title: "Safety",
@@ -393,6 +396,83 @@ struct SettingsView: View {
             }
         }
     }
+
+    private var aboutPane: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            PaneHeader(
+                title: "About",
+                subtitle: "Lid Awake for macOS.",
+                systemImage: "info.circle"
+            )
+
+            AboutHero(
+                appName: Self.appDisplayName,
+                versionText: appVersionText,
+                tagline: "Keep your Mac awake for deliberate local work, including with the lid closed."
+            )
+
+            SettingsCard(title: "Links", systemImage: "link") {
+                HStack(spacing: 10) {
+                    AboutLinkButton(
+                        title: "Website",
+                        systemImage: "safari",
+                        url: Self.websiteURL
+                    )
+
+                    AboutLinkButton(
+                        title: "GitHub",
+                        systemImage: "chevron.left.forwardslash.chevron.right",
+                        url: Self.repositoryURL
+                    )
+
+                    AboutLinkButton(
+                        title: "Releases",
+                        systemImage: "shippingbox",
+                        url: Self.releasesURL
+                    )
+                }
+            }
+
+            SettingsCard(title: "Details", systemImage: "doc.text") {
+                InfoLine(
+                    title: "Version",
+                    value: appVersionText,
+                    systemImage: "number"
+                )
+                Divider()
+                InfoLine(
+                    title: "Bundle identifier",
+                    value: Self.bundleIdentifier,
+                    systemImage: "shippingbox"
+                )
+                Divider()
+                InfoLine(
+                    title: "Requirements",
+                    value: "macOS 14 or newer, Apple Silicon",
+                    systemImage: "cpu"
+                )
+                Divider()
+                InfoLine(
+                    title: "License",
+                    value: "MIT License",
+                    systemImage: "checkmark.seal"
+                )
+                Divider()
+                InfoLine(
+                    title: "Copyright",
+                    value: "© 2026 Lid Awake contributors",
+                    systemImage: "c.circle"
+                )
+            }
+        }
+    }
+
+    private static let appDisplayName = "Lid Awake"
+    private static let bundleIdentifier =
+        Bundle.main.bundleIdentifier ?? "com.thuongtin.LidAwake"
+    private static let websiteURL = URL(string: "https://lidawake.thuongtin.com")
+    private static let repositoryURL = URL(string: "https://github.com/thuongtin/lid-awake")
+    private static let releasesURL = URL(string: "https://github.com/thuongtin/lid-awake/releases")
 
     private var batterySummary: String {
         guard let percent = model.battery.percent else {
@@ -500,6 +580,7 @@ private enum SettingsPane: String, CaseIterable, Identifiable {
     case battery
     case behavior
     case updates
+    case safety
     case about
 
     var id: String { rawValue }
@@ -514,8 +595,10 @@ private enum SettingsPane: String, CaseIterable, Identifiable {
             "Behavior"
         case .updates:
             "Updates"
-        case .about:
+        case .safety:
             "Safety"
+        case .about:
+            "About"
         }
     }
 
@@ -529,8 +612,70 @@ private enum SettingsPane: String, CaseIterable, Identifiable {
             "slider.horizontal.3"
         case .updates:
             "arrow.triangle.2.circlepath"
-        case .about:
+        case .safety:
             "shield.checkered"
+        case .about:
+            "info.circle"
+        }
+    }
+}
+
+private struct AboutHero: View {
+    let appName: String
+    let versionText: String
+    let tagline: String
+
+    var body: some View {
+        HStack(spacing: 16) {
+            appIcon
+                .frame(width: 64, height: 64)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(appName)
+                    .font(.title2.weight(.semibold))
+
+                Text("Version \(versionText)")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+
+                Text(tagline)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, 2)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(18)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(.quaternary, lineWidth: 1)
+        }
+    }
+
+    @ViewBuilder
+    private var appIcon: some View {
+        Image(nsImage: NSApplication.shared.applicationIconImage)
+            .resizable()
+            .aspectRatio(contentMode: .fit)
+    }
+}
+
+private struct AboutLinkButton: View {
+    let title: String
+    let systemImage: String
+    let url: URL?
+
+    var body: some View {
+        if let url {
+            Link(destination: url) {
+                Label(title, systemImage: systemImage)
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.large)
         }
     }
 }

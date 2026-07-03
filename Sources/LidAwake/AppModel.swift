@@ -85,6 +85,8 @@ final class AppModel: ObservableObject {
     private var closedLidOwnershipRecord: ClosedLidOwnershipRecord?
     private var suppressedClosedLidTarget: Bool?
     private var closedLidModeChangeID: UUID?
+    private var lastClosedLidVerifiedAt: Date?
+    private let closedLidVerifyInterval: TimeInterval = 30
 
     private var appEnabledClosedLidMode: Bool {
         closedLidOwnershipRecord?.ownedByThisApp == true
@@ -176,17 +178,24 @@ final class AppModel: ObservableObject {
         }
 
         timer?.invalidate()
-        timer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
+        let evaluateTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 self?.evaluate()
             }
         }
+        // Give the kernel slack to coalesce these periodic wakeups with other
+        // timers so a long-lived background process does not defeat App Nap.
+        evaluateTimer.tolerance = 1
+        timer = evaluateTimer
+
         closedLidSideEffectsTimer?.invalidate()
-        closedLidSideEffectsTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+        let sideEffectsTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 self?.reconcileClosedLidSideEffects()
             }
         }
+        sideEffectsTimer.tolerance = 0.5
+        closedLidSideEffectsTimer = sideEffectsTimer
     }
 
     var shouldShowClosedLidPermissionPrompt: Bool {
@@ -644,10 +653,13 @@ final class AppModel: ObservableObject {
     }
 
     private func syncClosedLidHelperStatus() {
-        let previousStatus = closedLidHelperStatus
-        closedLidHelperStatus = closedLidHelperService.status
+        let next = closedLidHelperService.status
 
-        if previousStatus != closedLidHelperStatus {
+        // Only publish on a real transition. @Published fires objectWillChange on
+        // every assignment regardless of equality, so an unconditional write here
+        // would re-render observing views on every 5s evaluate for no change.
+        if closedLidHelperStatus != next {
+            closedLidHelperStatus = next
             logger.info("closed-lid helper status changed status=\(self.closedLidHelperStatus.displayText, privacy: .public)")
         }
 
@@ -688,7 +700,19 @@ final class AppModel: ObservableObject {
             return
         }
 
+        // Steady state: when closed-lid mode is already enabled and still desired,
+        // re-verify with `pmset` only occasionally instead of spawning a subprocess
+        // on every 5s evaluate. syncClosedLidStatus() fork/execs /usr/bin/pmset, so
+        // an unthrottled read here is ~17k process spawns/day while holding.
+        if desired, !forceDisable, closedLidStatus == .enabled,
+           let lastVerified = lastClosedLidVerifiedAt,
+           Date().timeIntervalSince(lastVerified) < closedLidVerifyInterval {
+            closedLidError = nil
+            return
+        }
+
         syncClosedLidStatus()
+        lastClosedLidVerifiedAt = closedLidStatus == .enabled ? Date() : nil
 
         if desired {
             guard closedLidStatus != .enabled else {
@@ -859,6 +883,14 @@ final class AppModel: ObservableObject {
 
     private func reconcileClosedLidSideEffects() {
         refreshScreenLockAccessibilityState(prompt: false)
+
+        // When disabled, neither the lock nor the display coordinator can act, so
+        // skip their per-tick IOKit clamshell reads entirely rather than polling
+        // AppleClamshellState twice every second for the life of the process.
+        guard settings.enabled else {
+            return
+        }
+
         reconcileClosedLidLock()
         reconcileClosedLidDisplay()
     }
@@ -876,20 +908,29 @@ final class AppModel: ObservableObject {
 
     private func refreshScreenLockAccessibilityState(prompt: Bool) {
         guard settings.enabled, settings.lockScreenWhenLidCloses else {
-            screenLockAccessibilityTrusted = true
+            setScreenLockAccessibilityTrusted(true)
             return
         }
         guard screenLockPermissionChecker.requiresAccessibilityPermission else {
-            screenLockAccessibilityTrusted = true
+            setScreenLockAccessibilityTrusted(true)
             clearScreenLockAccessibilityErrorIfNeeded()
             return
         }
 
         let trusted = screenLockPermissionChecker.hasAccessibilityPermission(prompt: prompt)
-        screenLockAccessibilityTrusted = trusted
+        setScreenLockAccessibilityTrusted(trusted)
 
         if trusted {
             clearScreenLockAccessibilityErrorIfNeeded()
+        }
+    }
+
+    // Publish only on a real change. This runs every second while lock-on-close is
+    // enabled, and @Published does not dedupe by equality, so an unconditional
+    // write would re-render observing views once per second for a static value.
+    private func setScreenLockAccessibilityTrusted(_ value: Bool) {
+        if screenLockAccessibilityTrusted != value {
+            screenLockAccessibilityTrusted = value
         }
     }
 
@@ -904,7 +945,7 @@ final class AppModel: ObservableObject {
     private func reconcileClosedLidLock() {
         let action = closedLidLockCoordinator.update(settings: settings)
 
-        if !settings.lockScreenWhenLidCloses {
+        if !settings.lockScreenWhenLidCloses, closedLidLockError != nil {
             closedLidLockError = nil
         }
 
