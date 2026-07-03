@@ -92,10 +92,10 @@ section { padding: 88px 0; scroll-margin-top: 88px; }
   gap: 24px;
   height: 68px;
 }
-.logo { display: flex; align-items: center; gap: 10px; color: var(--fg-bright); }
+.logo { display: flex; align-items: center; gap: 10px; color: var(--fg-bright); flex-shrink: 0; }
 .logo-mark { width: 22px; height: 22px; display: inline-block; flex-shrink: 0; vertical-align: middle; }
 .logo .logo-mark { width: 30px; height: 30px; }
-.logo-text { font-weight: 600; }
+.logo-text { font-weight: 600; white-space: nowrap; }
 .version-badge {
   font-family: var(--font-mono);
   font-size: 0.7rem;
@@ -106,8 +106,11 @@ section { padding: 88px 0; scroll-margin-top: 88px; }
 }
 .site-nav { display: flex; gap: 28px; font-size: 0.9rem; }
 .site-nav a { color: var(--fg-muted); }
+.site-nav a,
+.header-actions .btn,
+.header-github { white-space: nowrap; }
 .site-nav a:hover { color: var(--fg-bright); }
-.header-actions { display: flex; align-items: center; gap: 16px; }
+.header-actions { display: flex; align-items: center; gap: 16px; flex-shrink: 0; }
 .header-github { color: var(--fg-muted); font-size: 0.9rem; }
 .lang-toggle {
   display: flex;
@@ -164,6 +167,54 @@ section { padding: 88px 0; scroll-margin-top: 88px; }
   font-size: 0.8rem;
   color: var(--fg-muted);
   overflow-x: auto;
+}
+.status-card-body {
+  padding: 24px;
+}
+.status-kicker {
+  margin: 0 0 10px;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.12em;
+  color: var(--accent);
+}
+.status-title {
+  margin: 0 0 18px;
+  max-width: 20ch;
+  color: var(--fg-bright);
+  font-size: 1.55rem;
+  font-weight: 600;
+  line-height: 1.15;
+}
+.status-list {
+  display: grid;
+  gap: 1px;
+  background: var(--border);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.status-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 14px;
+  background: rgba(19, 17, 11, 0.92);
+  color: var(--fg-muted);
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+}
+.status-row strong {
+  color: var(--fg-bright);
+  font-weight: 600;
+}
+.status-row.is-accent strong { color: var(--accent); }
+.status-note {
+  margin: 16px 0 0;
+  color: var(--fg-dim);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
 }
 
 /* Features */
@@ -292,6 +343,10 @@ section { padding: 88px 0; scroll-margin-top: 88px; }
 }
 
 @media (max-width: 900px) {
+  .site-nav { display: none; }
+  .header-github { display: none; }
+  .header-inner { gap: 16px; }
+  .header-actions { gap: 12px; }
   .hero-inner { grid-template-columns: 1fr; }
   .features-grid { grid-template-columns: repeat(2, 1fr); }
   .footer-inner { grid-template-columns: 1fr 1fr; }
