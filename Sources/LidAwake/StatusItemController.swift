@@ -123,8 +123,6 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
             return "bolt.circle.fill"
         case .blocked:
             return "exclamationmark.triangle.fill"
-        case .paused:
-            return "pause.circle.fill"
         case .inactive:
             return "moon.circle.fill"
         case .watching:
@@ -138,8 +136,6 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
             return "Lid Awake is keeping the Mac awake"
         case .blocked:
             return "Lid Awake needs attention"
-        case .paused:
-            return "Lid Awake is paused"
         case .inactive:
             return "Lid Awake is off"
         case .watching:

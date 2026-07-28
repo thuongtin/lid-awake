@@ -4,6 +4,12 @@ All notable changes to Lid Awake will be documented in this file.
 
 The format follows dated release sections after the first tagged release.
 
+## 0.1.5 - 2026-07-28
+
+- Replaced temporary pause controls with a scheduled stop that turns off Keep Awake after 30 minutes, one hour, or a custom duration.
+- Restored app-owned closed-lid mode and released power assertions when the scheduled stop is reached.
+- Migrated existing saved pause deadlines to the new scheduled-stop setting.
+
 ## 0.1.4 - 2026-07-03
 
 - Changed the public website link from `lidawake.thuongtin.com` to `lidawake.pages.dev` across the app, landing page, and documentation.

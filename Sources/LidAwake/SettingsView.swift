@@ -5,7 +5,7 @@ import SwiftUI
 struct SettingsView: View {
     @ObservedObject var model: AppModel
     @State private var selection: SettingsPane? = .general
-    @State private var customPauseMinutes = 15
+    @State private var customStopMinutes = 15
 
     var body: some View {
         NavigationSplitView {
@@ -81,37 +81,37 @@ struct SettingsView: View {
                 .labelsHidden()
             }
 
-            SettingsCard(title: "Quick Pause", systemImage: "pause.circle") {
+            SettingsCard(title: "Stop After", systemImage: "stopwatch") {
                 HStack(spacing: 10) {
                     SmoothButton("30 min", systemImage: "timer") {
-                        model.pause(for: 30 * 60)
+                        model.scheduleStop(for: 30 * 60)
                     }
 
                     SmoothButton("1 hour", systemImage: "clock") {
-                        model.pause(for: 60 * 60)
+                        model.scheduleStop(for: 60 * 60)
                     }
 
-                    SmoothButton("Clear", systemImage: "play.circle") {
-                        model.clearPause()
+                    SmoothButton("Cancel", systemImage: "xmark.circle") {
+                        model.clearScheduledStop()
                     }
-                    .disabled(model.settings.pauseUntil == nil)
+                    .disabled(model.settings.stopAt == nil)
                 }
 
                 Divider()
 
-                CustomPauseControl(
-                    minutes: $customPauseMinutes,
+                StopAfterControl(
+                    minutes: $customStopMinutes,
                     compact: false
                 ) { minutes in
-                    model.pause(for: TimeInterval(minutes * 60))
+                    model.scheduleStop(for: TimeInterval(minutes * 60))
                 }
 
-                if let pauseUntil = model.settings.pauseUntil {
+                if let stopAt = model.settings.stopAt {
                     Divider()
                     InfoLine(
-                        title: "Paused until",
-                        value: pauseUntil.formatted(date: .omitted, time: .shortened),
-                        systemImage: "clock.badge"
+                        title: "Will stop at",
+                        value: stopAt.formatted(date: .omitted, time: .shortened),
+                        systemImage: "stopwatch"
                     )
                     .contentTransition(.numericText())
                 }

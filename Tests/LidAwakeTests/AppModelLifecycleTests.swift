@@ -96,6 +96,36 @@ final class AppModelLifecycleTests: XCTestCase {
         XCTAssertNil(harness.model.closedLidError)
     }
 
+    func testScheduledStopDisablesAppAndRestoresOwnedClosedLidMode() async {
+        let clock = FakeClock()
+        let harness = AppModelHarness(
+            settings: UserSettings(enabled: true, stopAt: clock.now.addingTimeInterval(60)),
+            helperStatus: .enabled,
+            closedLidStatus: .disabled,
+            clock: clock
+        )
+        harness.helper.onSetClosedLidMode = { enabled in
+            harness.closedLidStatusReader.status = enabled ? .enabled : .disabled
+        }
+
+        harness.model.start(scheduleTimers: false)
+        await drainMainQueue()
+        XCTAssertEqual(harness.helper.setClosedLidModeRequests, [true])
+        XCTAssertTrue(harness.powerController.isHolding)
+
+        clock.advance(seconds: 60)
+        harness.model.evaluate()
+        await drainMainQueue()
+
+        XCTAssertFalse(harness.model.settings.enabled)
+        XCTAssertNil(harness.model.settings.stopAt)
+        XCTAssertEqual(harness.model.status, .inactive)
+        XCTAssertFalse(harness.powerController.isHolding)
+        XCTAssertEqual(harness.helper.setClosedLidModeRequests, [true, false])
+        XCTAssertNil(harness.ownershipStore.record)
+        XCTAssertEqual(harness.settingsStore.savedSettings.last?.enabled, false)
+    }
+
     func testRemoveHelperRestoresOwnedClosedLidModeBeforeUnregistering() async {
         let harness = AppModelHarness(
             settings: UserSettings(enabled: true),
@@ -517,6 +547,7 @@ private final class AppModelHarness {
     let screenLockPermissionChecker = FakeScreenLockPermissionChecker()
     let powerController = FakePowerController()
     let notificationService: FakeNotificationService
+    let clock: FakeClock
     let displayClamshellReader = FakeClamshellStateReader()
     let lockClamshellReader = FakeClamshellStateReader()
     let displayScreenLockStateReader = FakeScreenLockStateReader()
@@ -534,6 +565,7 @@ private final class AppModelHarness {
             message: "Software updates are not configured for this build.",
             feedURL: nil
         ),
+        clock: FakeClock = FakeClock(),
         closedLidModeChangeTimeout: TimeInterval = 6
     ) {
         self.settingsStore = FakeSettingsStore(settings: settings)
@@ -542,6 +574,7 @@ private final class AppModelHarness {
         self.helper = FakeClosedLidHelperService(status: helperStatus)
         self.softwareUpdateService = FakeSoftwareUpdateService(state: softwareUpdateState)
         self.notificationService = FakeNotificationService()
+        self.clock = clock
         self.model = AppModel(
             settingsStore: settingsStore,
             closedLidOwnershipStore: ownershipStore,
@@ -552,7 +585,7 @@ private final class AppModelHarness {
             softwareUpdateService: softwareUpdateService,
             screenLockPermissionChecker: screenLockPermissionChecker,
             powerController: powerController,
-            clock: FakeClock(),
+            clock: clock,
             closedLidDisplayCoordinator: ClosedLidDisplayCoordinator(
                 clamshellStateReader: displayClamshellReader,
                 displaySleeper: displaySleeper,
@@ -750,6 +783,10 @@ private final class FakePowerController: PowerAssertionControlling {
 
 private final class FakeClock: Clock {
     var now = Date(timeIntervalSince1970: 1_800_000_000)
+
+    func advance(seconds: TimeInterval) {
+        now = now.addingTimeInterval(seconds)
+    }
 }
 
 private final class FakeClamshellStateReader: ClamshellStateReading {

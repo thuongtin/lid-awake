@@ -25,7 +25,6 @@ public struct WakeHoldReason: Equatable, Sendable {
 
 public enum WakeBlockReason: Equatable, Sendable {
     case disabled
-    case paused(until: Date)
     case noActiveAgent
     case batteryCutoff(percent: Int, cutoff: Int)
     case notPluggedIn
@@ -36,8 +35,6 @@ public enum WakeBlockReason: Equatable, Sendable {
         switch self {
         case .disabled:
             "Disabled"
-        case let .paused(until):
-            "Paused until \(until.formatted(date: .omitted, time: .shortened))"
         case .noActiveAgent:
             "Ready"
         case let .batteryCutoff(percent, cutoff):
@@ -56,7 +53,6 @@ public enum WakeStatus: Equatable, Sendable {
     case inactive
     case watching
     case holding(WakeHoldReason)
-    case paused(until: Date)
     case blocked(WakeBlockReason)
 
     public var displayText: String {
@@ -73,8 +69,6 @@ public enum WakeStatus: Equatable, Sendable {
                 return "Keeping Mac awake"
             }
             return "Holding for \(reason.activeAgentNames.joined(separator: ", "))"
-        case let .paused(until):
-            return "Paused until \(until.formatted(date: .omitted, time: .shortened))"
         case let .blocked(reason):
             return reason.displayText
         }
@@ -105,12 +99,6 @@ public final class WakePolicyCoordinator {
         guard settings.enabled else {
             releaseAndClear()
             status = .inactive
-            return status
-        }
-
-        if let pauseUntil = settings.pauseUntil, pauseUntil > now {
-            releaseAndClear()
-            status = .paused(until: pauseUntil)
             return status
         }
 

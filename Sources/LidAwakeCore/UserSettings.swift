@@ -33,7 +33,7 @@ public struct UserSettings: Codable, Equatable, Sendable {
     public var preventDisplaySleep: Bool
     public var lidClosedDisplayMode: LidClosedDisplayMode
     public var lockScreenWhenLidCloses: Bool
-    public var pauseUntil: Date?
+    public var stopAt: Date?
 
     public init(
         enabled: Bool = true,
@@ -45,7 +45,7 @@ public struct UserSettings: Codable, Equatable, Sendable {
         preventDisplaySleep: Bool = true,
         lidClosedDisplayMode: LidClosedDisplayMode = .turnDisplayOff,
         lockScreenWhenLidCloses: Bool = false,
-        pauseUntil: Date? = nil
+        stopAt: Date? = nil
     ) {
         self.enabled = enabled
         self.launchAtLogin = launchAtLogin
@@ -56,7 +56,7 @@ public struct UserSettings: Codable, Equatable, Sendable {
         self.preventDisplaySleep = preventDisplaySleep
         self.lidClosedDisplayMode = lidClosedDisplayMode
         self.lockScreenWhenLidCloses = lockScreenWhenLidCloses
-        self.pauseUntil = pauseUntil
+        self.stopAt = stopAt
     }
 
     public static let defaults = UserSettings()
@@ -79,6 +79,7 @@ public struct UserSettings: Codable, Equatable, Sendable {
         case preventDisplaySleep
         case lidClosedDisplayMode
         case lockScreenWhenLidCloses
+        case stopAt
         case pauseUntil
     }
 
@@ -99,6 +100,21 @@ public struct UserSettings: Codable, Equatable, Sendable {
             Bool.self,
             forKey: .lockScreenWhenLidCloses
         ) ?? false
-        self.pauseUntil = try container.decodeIfPresent(Date.self, forKey: .pauseUntil)
+        self.stopAt = try container.decodeIfPresent(Date.self, forKey: .stopAt)
+            ?? container.decodeIfPresent(Date.self, forKey: .pauseUntil)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(enabled, forKey: .enabled)
+        try container.encode(launchAtLogin, forKey: .launchAtLogin)
+        try container.encode(batteryCutoffPercent, forKey: .batteryCutoffPercent)
+        try container.encode(onlyWhenPluggedIn, forKey: .onlyWhenPluggedIn)
+        try container.encode(respectLowPowerMode, forKey: .respectLowPowerMode)
+        try container.encode(idleReleaseDelaySeconds, forKey: .idleReleaseDelaySeconds)
+        try container.encode(preventDisplaySleep, forKey: .preventDisplaySleep)
+        try container.encode(lidClosedDisplayMode, forKey: .lidClosedDisplayMode)
+        try container.encode(lockScreenWhenLidCloses, forKey: .lockScreenWhenLidCloses)
+        try container.encodeIfPresent(stopAt, forKey: .stopAt)
     }
 }

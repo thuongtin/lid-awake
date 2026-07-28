@@ -1,13 +1,13 @@
 import SwiftUI
 
-struct CustomPauseControl: View {
+struct StopAfterControl: View {
     @Binding var minutes: Int
     let compact: Bool
     let action: (Int) -> Void
 
     var body: some View {
         HStack(spacing: compact ? 10 : 12) {
-            Label("Custom pause", systemImage: "slider.horizontal.2.square")
+            Label("Custom time", systemImage: "slider.horizontal.2.square")
                 .font(compact ? .caption.weight(.semibold) : .callout.weight(.medium))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
@@ -44,10 +44,10 @@ struct CustomPauseControl: View {
                 action(clampedMinutes)
             } label: {
                 if compact {
-                    Label("Pause", systemImage: "pause.fill")
+                    Label("Stop", systemImage: "stop.fill")
                         .labelStyle(.iconOnly)
                 } else {
-                    Label("Pause", systemImage: "pause.fill")
+                    Label("Stop", systemImage: "stop.fill")
                 }
             }
             .buttonStyle(.plain)

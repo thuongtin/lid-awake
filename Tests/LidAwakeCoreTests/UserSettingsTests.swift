@@ -16,7 +16,7 @@ final class UserSettingsTests: XCTestCase {
         XCTAssertFalse(settings.lockScreenWhenLidCloses)
         XCTAssertFalse(settings.shouldPreventDisplaySleep)
         XCTAssertTrue(settings.shouldPreventClosedLidSleep)
-        XCTAssertNil(settings.pauseUntil)
+        XCTAssertNil(settings.stopAt)
     }
 
     func testDecodesLegacySettingsWithNewDefaults() throws {
@@ -38,6 +38,28 @@ final class UserSettingsTests: XCTestCase {
         XCTAssertEqual(settings.batteryCutoffPercent, 15)
         XCTAssertEqual(settings.lidClosedDisplayMode, .turnDisplayOff)
         XCTAssertFalse(settings.lockScreenWhenLidCloses)
+    }
+
+    func testDecodesLegacyPauseDeadlineAsStopDeadline() throws {
+        let legacyDeadline = Date(timeIntervalSince1970: 1_800_000_000)
+        let data = Data("""
+        {
+          "pauseUntil": \(legacyDeadline.timeIntervalSinceReferenceDate)
+        }
+        """.utf8)
+
+        let settings = try JSONDecoder().decode(UserSettings.self, from: data)
+
+        XCTAssertEqual(settings.stopAt, legacyDeadline)
+    }
+
+    func testEncodesOnlyStopDeadline() throws {
+        let settings = UserSettings(stopAt: Date(timeIntervalSince1970: 1_800_000_000))
+        let data = try JSONEncoder().encode(settings)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+
+        XCTAssertNotNil(object["stopAt"])
+        XCTAssertNil(object["pauseUntil"])
     }
 
     func testDisplaySleepAssertionRequiresKeepDisplayOnMode() {

@@ -96,7 +96,7 @@ final class WakePolicyCoordinatorTests: XCTestCase {
         XCTAssertEqual(status, .watching)
     }
 
-    func testPauseReleasesAndSuppressesHold() {
+    func testScheduledStopDoesNotInterruptHoldingBeforeDeadline() {
         let clock = FakeClock()
         let power = FakePowerController()
         let coordinator = WakePolicyCoordinator(powerController: power, clock: clock)
@@ -108,16 +108,18 @@ final class WakePolicyCoordinatorTests: XCTestCase {
             battery: BatteryState(percent: 80, isCharging: false, isOnACPower: false, isLowPowerModeEnabled: false)
         )
 
-        let pauseUntil = clock.now.addingTimeInterval(60)
-        settings.pauseUntil = pauseUntil
+        settings.stopAt = clock.now.addingTimeInterval(60)
         let status = coordinator.update(
             settings: settings,
             sessions: [session()],
             battery: BatteryState(percent: 80, isCharging: false, isOnACPower: false, isLowPowerModeEnabled: false)
         )
 
-        XCTAssertFalse(power.isHolding)
-        XCTAssertEqual(status, .paused(until: pauseUntil))
+        XCTAssertTrue(power.isHolding)
+        if case .holding = status {
+            return
+        }
+        XCTFail("Expected holding before the scheduled stop deadline")
     }
 
     func testBatteryCutoffReleasesImmediately() {

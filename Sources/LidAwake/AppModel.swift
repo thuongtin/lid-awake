@@ -75,6 +75,7 @@ final class AppModel: ObservableObject {
     private let closedLidModeChangeTimeout: TimeInterval
     private let logger = Logger(subsystem: "com.thuongtin.LidAwake", category: "app")
     private let powerController: PowerAssertionControlling
+    private let clock: Clock
     private let coordinator: WakePolicyCoordinator
     private let closedLidDisplayCoordinator: ClosedLidDisplayCoordinator
     private let closedLidLockCoordinator: ClosedLidLockCoordinator
@@ -148,6 +149,7 @@ final class AppModel: ObservableObject {
         self.screenLockPermissionChecker = screenLockPermissionChecker
         self.closedLidModeChangeTimeout = closedLidModeChangeTimeout
         self.powerController = powerController
+        self.clock = clock
         self.coordinator = WakePolicyCoordinator(
             powerController: powerController,
             clock: clock
@@ -543,15 +545,15 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func pause(for interval: TimeInterval) {
+    func scheduleStop(for interval: TimeInterval) {
         updateSettings { settings in
-            settings.pauseUntil = Date().addingTimeInterval(interval)
+            settings.stopAt = clock.now.addingTimeInterval(interval)
         }
     }
 
-    func clearPause() {
+    func clearScheduledStop() {
         updateSettings { settings in
-            settings.pauseUntil = nil
+            settings.stopAt = nil
         }
     }
 
@@ -562,12 +564,14 @@ final class AppModel: ObservableObject {
 
     func evaluate() {
         logger.debug("evaluate begin")
+        let now = clock.now
+        stopWhenDeadlineIsReached(now: now)
         let nextBattery = batteryMonitor.currentState()
         if battery != nextBattery {
             battery = nextBattery
         }
         logger.debug("evaluate battery complete")
-        let nextSessions = manualHoldSessions(now: Date())
+        let nextSessions = manualHoldSessions(now: now)
         if sessions.map(\.id) != nextSessions.map(\.id) {
             sessions = nextSessions
         }
@@ -584,6 +588,19 @@ final class AppModel: ObservableObject {
         notificationService.handleTransition(from: previousStatus, to: status)
         reconcileClosedLidMode(desired: shouldEnableClosedLidMode, forceDisable: false)
         reconcileClosedLidSideEffects()
+    }
+
+    private func stopWhenDeadlineIsReached(now: Date) {
+        guard let stopAt = settings.stopAt, stopAt <= now else {
+            return
+        }
+
+        logger.info("scheduled stop reached")
+        var nextSettings = settings
+        nextSettings.enabled = false
+        nextSettings.stopAt = nil
+        settings = nextSettings
+        settingsStore.save(nextSettings)
     }
 
     private func manualHoldSessions(now: Date) -> [AgentSession] {

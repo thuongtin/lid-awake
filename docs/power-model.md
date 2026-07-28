@@ -11,9 +11,9 @@ Advanced helper label: `com.thuongtin.LidAwake.Helper`.
 - Optionally acquires `kIOPMAssertionTypePreventUserIdleDisplaySleep` when the lid-close display mode is set to keep display on.
 - Closed-lid mode uses an advanced LaunchDaemon helper registered with `SMAppService`.
 - After the helper is approved once in System Settings, the app can ask it through XPC to run `pmset -a disablesleep 1` or `pmset -a disablesleep 0`.
-- Restores closed-lid mode when the user turns the mode off, pauses, disables the app, or quits after this app enabled it.
-- Releases assertions when manual hold is disabled, paused, or blocked by safety rules.
-- Releases assertions immediately when the app is disabled, paused, quit, blocked by battery cutoff, or blocked by Low Power Mode.
+- Restores closed-lid mode when the user turns the mode off, a scheduled stop is reached, disables the app, or quits after this app enabled it.
+- Releases assertions when manual hold is disabled, stopped by its schedule, or blocked by safety rules.
+- Releases assertions immediately when the app is disabled, stopped by its schedule, quits, is blocked by battery cutoff, or is blocked by Low Power Mode.
 - Optionally requests the macOS lock screen when the user enables lock-on-close. It uses `CGSession` when available and falls back to the system Lock Screen keyboard shortcut on macOS builds without that command.
 - Does not detect coding agents or inspect process activity.
 - Can register as a macOS login item from Settings.

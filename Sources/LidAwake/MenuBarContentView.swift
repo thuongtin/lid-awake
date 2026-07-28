@@ -4,7 +4,7 @@ import SwiftUI
 struct MenuBarContentView: View {
     @ObservedObject var model: AppModel
     let openSettings: () -> Void
-    @State private var customPauseMinutes = 15
+    @State private var customStopMinutes = 15
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -270,24 +270,24 @@ struct MenuBarContentView: View {
         VStack(spacing: 10) {
             HStack(spacing: 10) {
                 IconActionButton("30 min", systemImage: "timer") {
-                    model.pause(for: 30 * 60)
+                    model.scheduleStop(for: 30 * 60)
                 }
 
                 IconActionButton("1 hour", systemImage: "clock") {
-                    model.pause(for: 60 * 60)
+                    model.scheduleStop(for: 60 * 60)
                 }
 
-                IconActionButton("Clear", systemImage: "play.circle") {
-                    model.clearPause()
+                IconActionButton("Cancel", systemImage: "xmark.circle") {
+                    model.clearScheduledStop()
                 }
-                .disabled(model.settings.pauseUntil == nil)
+                .disabled(model.settings.stopAt == nil)
             }
 
-            CustomPauseControl(
-                minutes: $customPauseMinutes,
+            StopAfterControl(
+                minutes: $customStopMinutes,
                 compact: true
             ) { minutes in
-                model.pause(for: TimeInterval(minutes * 60))
+                model.scheduleStop(for: TimeInterval(minutes * 60))
             }
             .padding(10)
             .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
@@ -322,8 +322,6 @@ struct MenuBarContentView: View {
             .green
         case .blocked:
             .orange
-        case .paused:
-            .yellow
         case .inactive:
             .secondary
         case .watching:
@@ -337,8 +335,6 @@ struct MenuBarContentView: View {
             "bolt.fill"
         case .blocked:
             "exclamationmark.triangle.fill"
-        case .paused:
-            "pause.fill"
         case .inactive:
             "moon.zzz.fill"
         case .watching:
@@ -352,8 +348,6 @@ struct MenuBarContentView: View {
             "On"
         case .blocked:
             "Blocked"
-        case .paused:
-            "Paused"
         case .inactive:
             "Off"
         case .watching:
@@ -367,8 +361,6 @@ struct MenuBarContentView: View {
             "checkmark.circle.fill"
         case .blocked:
             "exclamationmark.circle.fill"
-        case .paused:
-            "pause.circle.fill"
         case .inactive:
             "power.circle"
         case .watching:
