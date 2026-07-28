@@ -4,6 +4,10 @@ All notable changes to Lid Awake will be documented in this file.
 
 The format follows dated release sections after the first tagged release.
 
+## 0.1.6 - 2026-07-28
+
+- Removed scheduled-stop controls from the menu bar popover while keeping the feature available in Settings.
+
 ## 0.1.5 - 2026-07-28
 
 - Replaced temporary pause controls with a scheduled stop that turns off Keep Awake after 30 minutes, one hour, or a custom duration.

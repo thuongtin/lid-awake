@@ -4,7 +4,6 @@ import SwiftUI
 struct MenuBarContentView: View {
     @ObservedObject var model: AppModel
     let openSettings: () -> Void
-    @State private var customStopMinutes = 15
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -16,7 +15,6 @@ struct MenuBarContentView: View {
                 screenLockPermissionPanel
             }
             metricsPanel
-            quickActionsPanel
             footerActions
         }
         .padding(14)
@@ -263,38 +261,6 @@ struct MenuBarContentView: View {
         .overlay {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .stroke(.quaternary, lineWidth: 1)
-        }
-    }
-
-    private var quickActionsPanel: some View {
-        VStack(spacing: 10) {
-            HStack(spacing: 10) {
-                IconActionButton("30 min", systemImage: "timer") {
-                    model.scheduleStop(for: 30 * 60)
-                }
-
-                IconActionButton("1 hour", systemImage: "clock") {
-                    model.scheduleStop(for: 60 * 60)
-                }
-
-                IconActionButton("Cancel", systemImage: "xmark.circle") {
-                    model.clearScheduledStop()
-                }
-                .disabled(model.settings.stopAt == nil)
-            }
-
-            StopAfterControl(
-                minutes: $customStopMinutes,
-                compact: true
-            ) { minutes in
-                model.scheduleStop(for: TimeInterval(minutes * 60))
-            }
-            .padding(10)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .stroke(.quaternary, lineWidth: 1)
-            }
         }
     }
 
