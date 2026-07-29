@@ -102,7 +102,7 @@ final class AppModel: ObservableObject {
             loginItemService: LoginItemService(),
             closedLidStatusReader: PMSetService(),
             closedLidHelperService: ClosedLidHelperService(),
-            softwareUpdateService: SystemSoftwareUpdateService(),
+            softwareUpdateService: SystemSoftwareUpdateService(activationPolicyController: .shared),
             screenLockPermissionChecker: SystemScreenLockPermissionChecker(),
             powerController: powerController,
             clock: SystemClock(),
