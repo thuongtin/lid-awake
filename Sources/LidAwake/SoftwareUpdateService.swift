@@ -40,12 +40,14 @@ protocol SoftwareUpdateServicing: AnyObject {
 @MainActor
 final class SystemSoftwareUpdateService: NSObject, SoftwareUpdateServicing {
     private let bundle: Bundle
+    private let activationPolicyController: ActivationPolicyController
     private var updaterController: SPUStandardUpdaterController?
     private var cancellables: Set<AnyCancellable> = []
     private var stateChangeHandler: (@MainActor () -> Void)?
 
-    init(bundle: Bundle = .main) {
+    init(bundle: Bundle = .main, activationPolicyController: ActivationPolicyController) {
         self.bundle = bundle
+        self.activationPolicyController = activationPolicyController
         super.init()
     }
 
@@ -87,7 +89,7 @@ final class SystemSoftwareUpdateService: NSObject, SoftwareUpdateServicing {
         let controller = SPUStandardUpdaterController(
             startingUpdater: true,
             updaterDelegate: nil,
-            userDriverDelegate: nil
+            userDriverDelegate: self
         )
         updaterController = controller
         observe(updater: controller.updater)
@@ -100,6 +102,10 @@ final class SystemSoftwareUpdateService: NSObject, SoftwareUpdateServicing {
             return
         }
 
+        // The progress window and the "you're up to date" alert are shown before any
+        // user driver delegate callback runs, so the app has to be in the foreground
+        // by the time the check starts.
+        activationPolicyController.beginForeground(.updateSession)
         updaterController.checkForUpdates(nil)
         notifyStateChanged()
     }
@@ -166,6 +172,31 @@ final class SystemSoftwareUpdateService: NSObject, SoftwareUpdateServicing {
 
     private func notifyStateChanged() {
         stateChangeHandler?()
+    }
+}
+
+// Sparkle does not annotate this delegate as main actor isolated even though it only
+// ever calls it from the main thread, which its own implementation asserts.
+extension SystemSoftwareUpdateService: @preconcurrency SPUStandardUserDriverDelegate {
+    /// A scheduled check puts an update alert on screen without anyone asking for it.
+    /// For an `.accessory` process that alert lands behind every other window, with no
+    /// Dock icon or app switcher entry left to get back to it.
+    func standardUserDriverWillHandleShowingUpdate(
+        _ handleShowingUpdate: Bool,
+        forUpdate update: SUAppcastItem,
+        state: SPUUserUpdateState
+    ) {
+        guard handleShowingUpdate else {
+            return
+        }
+
+        activationPolicyController.beginForeground(.updateSession)
+    }
+
+    /// Sparkle calls this once for every session that showed UI, whether it ended in an
+    /// installed update, no update found, an error, or the user dismissing the alert.
+    func standardUserDriverWillFinishUpdateSession() {
+        activationPolicyController.endForeground(.updateSession)
     }
 }
 
