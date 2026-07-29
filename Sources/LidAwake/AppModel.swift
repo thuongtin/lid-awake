@@ -27,6 +27,7 @@ protocol ClosedLidHelperServicing: AnyObject {
     func repairRegistration() throws
     func unregister() throws
     func setClosedLidMode(enabled: Bool, reply: @escaping (Result<Void, Error>) -> Void)
+    func probeConnection(reply: @escaping (Result<Void, ClosedLidHelperFailure>) -> Void)
     func openApprovalSettings()
 }
 
@@ -55,14 +56,34 @@ final class AppModel: ObservableObject {
     @Published private(set) var launchAtLoginError: String?
     @Published private(set) var closedLidStatus: ClosedLidStatus = .notReported
     @Published private(set) var closedLidHelperStatus: ClosedLidHelperStatus = .notRegistered
-    @Published private(set) var closedLidError: String?
+    /// Why closed-lid control is currently blocked, if it is.
+    ///
+    /// `closedLidHelperNeedsRepair` and any in-flight probe qualify *this*
+    /// error, so neither may outlive it. Every consumer reads the pair: with a
+    /// repair flag and no error there is no warning panel, no Repair button,
+    /// and no code path that can clear the flag again, and a probe that lands
+    /// after the error changed would retire a failure it never tested.
+    @Published private(set) var closedLidError: String? {
+        didSet {
+            closedLidHelperProbeID = nil
+            if closedLidError == nil {
+                closedLidHelperNeedsRepair = false
+            }
+        }
+    }
     @Published private(set) var closedLidDisplayError: String?
     @Published private(set) var closedLidLockError: String?
     @Published private(set) var screenLockAccessibilityTrusted = true
     @Published private(set) var isChangingClosedLidMode = false
+    /// Set when the last helper call failed in a way that re-registering can fix.
+    ///
+    /// This cannot be derived from `closedLidHelperStatus`, because the failures
+    /// it covers all leave the `SMAppService` record reporting `.enabled`. It is
+    /// only ever true alongside a `closedLidError`, which `closedLidError`
+    /// enforces on its own.
+    @Published private(set) var closedLidHelperNeedsRepair = false
 
-    private static let closedLidModeChangeTimeoutMessage =
-        "Lid Awake Helper did not respond. Repair the helper, then try again."
+    private static let closedLidModeChangeTimeoutMessage = ClosedLidHelperFailure.timedOutMessage
 
     private let settingsStore: UserSettingsStoring
     private let closedLidOwnershipStore: ClosedLidOwnershipStoring
@@ -86,6 +107,11 @@ final class AppModel: ObservableObject {
     private var closedLidOwnershipRecord: ClosedLidOwnershipRecord?
     private var suppressedClosedLidTarget: Bool?
     private var closedLidModeChangeID: UUID?
+    /// Identifies the probe whose reply is still wanted. Nil means none is in
+    /// flight, or the state it was testing has already moved on.
+    private var closedLidHelperProbeID: UUID?
+    private var lastClosedLidHelperProbeAt: Date?
+    private let closedLidHelperProbeInterval: TimeInterval = 30
     private var lastClosedLidVerifiedAt: Date?
     private let closedLidVerifyInterval: TimeInterval = 30
 
@@ -283,6 +309,15 @@ final class AppModel: ObservableObject {
     }
 
     var closedLidMenuAttentionMessage: String {
+        // The popover clamps this to two lines, so the one message long enough
+        // to be cut off there is swapped for a short version that still names
+        // the remedy. Settings renders `closedLidAttentionMessage` in full.
+        // Matching the exact text keeps this a substitution for that message
+        // alone, so no other failure reason can be hidden behind it.
+        if closedLidError == ClosedLidHelperFailure.connectionLostMessage {
+            return ClosedLidHelperFailure.connectionLostCompactMessage
+        }
+
         if let closedLidError {
             return closedLidError
         }
@@ -329,7 +364,8 @@ final class AppModel: ObservableObject {
 
     var shouldOfferClosedLidHelperRepair: Bool {
         closedLidHelperStatus == .enabled
-            && closedLidError == Self.closedLidModeChangeTimeoutMessage
+            && closedLidHelperNeedsRepair
+            && closedLidError != nil
     }
 
     func refreshClosedLidPermissionState() {
@@ -342,6 +378,72 @@ final class AppModel: ObservableObject {
         refreshScreenLockAccessibilityState(prompt: false)
         evaluate()
         refreshScreenLockAccessibilityState(prompt: false)
+        // The user just opened a window to look at this, so answer now rather
+        // than on the next interval.
+        probeClosedLidHelperIfBlocked(force: true)
+    }
+
+    /// Retires a connection failure once the helper answers again.
+    ///
+    /// Refreshing `closedLidHelperStatus` cannot do this on its own: every
+    /// failure that sets `closedLidHelperNeedsRepair` leaves the `SMAppService`
+    /// record reporting `.enabled`, so the warning would otherwise stay on
+    /// screen for the rest of the app's life even after the user repaired the
+    /// helper, reinstalled the app, or restarted the Mac. Asking the helper
+    /// directly is the only thing that can tell the two states apart.
+    private func probeClosedLidHelperIfBlocked(force: Bool = false) {
+        guard closedLidHelperNeedsRepair,
+              closedLidHelperStatus == .enabled,
+              closedLidError != nil,
+              !isChangingClosedLidMode,
+              closedLidHelperProbeID == nil
+        else {
+            return
+        }
+
+        // Recovery can come from outside the app, so this also runs on the
+        // regular evaluate tick, which is far more often than the helper needs
+        // to be asked.
+        let now = clock.now
+        if !force,
+           let lastClosedLidHelperProbeAt,
+           now.timeIntervalSince(lastClosedLidHelperProbeAt) < closedLidHelperProbeInterval {
+            return
+        }
+
+        let probeID = UUID()
+        closedLidHelperProbeID = probeID
+        lastClosedLidHelperProbeAt = now
+        closedLidHelperService.probeConnection { [weak self] result in
+            DispatchQueue.main.async {
+                self?.finishClosedLidHelperProbe(probeID: probeID, result: result)
+            }
+        }
+    }
+
+    private func finishClosedLidHelperProbe(probeID: UUID, result: Result<Void, ClosedLidHelperFailure>) {
+        // Anything that rewrote `closedLidError` while this was in flight
+        // retired the probe along with it, because succeeding here would
+        // otherwise clear a failure this probe never tested.
+        guard closedLidHelperProbeID == probeID else {
+            return
+        }
+
+        closedLidHelperProbeID = nil
+
+        guard case .success = result else {
+            return
+        }
+
+        logger.info("closed-lid helper reachable again, clearing repair prompt")
+        closedLidError = nil
+        suppressedClosedLidTarget = nil
+        evaluate()
+    }
+
+    /// Whether re-registering the helper is the action that can clear a failure.
+    private func isRepairableClosedLidFailure(_ error: Error) -> Bool {
+        (error as? ClosedLidHelperFailure)?.isRecoverableByRepair ?? false
     }
 
     func stop() {
@@ -438,6 +540,7 @@ final class AppModel: ObservableObject {
             try closedLidHelperService.repairRegistration()
             syncClosedLidHelperStatus()
             suppressedClosedLidTarget = nil
+            closedLidHelperNeedsRepair = false
             switch closedLidHelperStatus {
             case .enabled:
                 closedLidError = nil
@@ -454,6 +557,10 @@ final class AppModel: ObservableObject {
             }
         } catch {
             syncClosedLidHelperStatus()
+            // Repair is only ever entered while it is already the offered
+            // action, and a failure leaves that unchanged, so the flag is
+            // deliberately left alone here: Set Up would return early while the
+            // stale registration still reports as enabled.
             closedLidError = "Repairing Lid Awake Helper failed: \(closedLidSetupError(from: error))"
         }
     }
@@ -531,6 +638,10 @@ final class AppModel: ObservableObject {
             unregisterClosedLidHelper()
         case let .failure(error):
             closedLidError = "Could not restore closed-lid mode before removing helper: \(closedLidUserFacingError(from: error))"
+            // An unreachable helper cannot restore closed-lid mode, so it also
+            // cannot be removed cleanly. Repair is the way out of that, and it
+            // has to be offered here too.
+            closedLidHelperNeedsRepair = isRepairableClosedLidFailure(error)
         }
     }
 
@@ -588,6 +699,7 @@ final class AppModel: ObservableObject {
         notificationService.handleTransition(from: previousStatus, to: status)
         reconcileClosedLidMode(desired: shouldEnableClosedLidMode, forceDisable: false)
         reconcileClosedLidSideEffects()
+        probeClosedLidHelperIfBlocked()
     }
 
     private func stopWhenDeadlineIsReached(now: Date) {
@@ -685,6 +797,15 @@ final class AppModel: ObservableObject {
 
     private func clearClosedLidReadinessBlockIfPossible() {
         guard closedLidHelperStatus.canControlClosedLidMode else {
+            return
+        }
+
+        // A helper the app cannot reach reports the same `.enabled` status as a
+        // working one, so a status refresh is not evidence the block is gone.
+        // Lifting the block here would make the app reconnect on every evaluate
+        // for as long as the app runs. `probeClosedLidHelperIfBlocked()` lifts it
+        // instead, once the helper has actually answered.
+        guard !closedLidHelperNeedsRepair else {
             return
         }
 
@@ -859,9 +980,11 @@ final class AppModel: ObservableObject {
             saveClosedLidOwnershipRecord(nextRecord)
             suppressedClosedLidTarget = nil
             closedLidError = nil
+            closedLidHelperNeedsRepair = false
         case let .failure(error):
             suppressedClosedLidTarget = enabled
             closedLidError = closedLidUserFacingError(from: error)
+            closedLidHelperNeedsRepair = isRepairableClosedLidFailure(error)
         }
 
         reconcileClosedLidSideEffects()
@@ -894,6 +1017,7 @@ final class AppModel: ObservableObject {
         closedLidStatus = status
         suppressedClosedLidTarget = enabled
         closedLidError = Self.closedLidModeChangeTimeoutMessage
+        closedLidHelperNeedsRepair = true
         logger.error("closed-lid helper update timed out enabled=\(enabled)")
         reconcileClosedLidSideEffects()
     }

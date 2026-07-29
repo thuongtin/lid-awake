@@ -315,6 +315,216 @@ final class AppModelLifecycleTests: XCTestCase {
         XCTAssertNil(harness.model.closedLidError)
     }
 
+    func testLostHelperConnectionOffersRepairRatherThanSetup() async {
+        let harness = makeHarnessWithLostHelperConnection()
+
+        harness.model.start(scheduleTimers: false)
+        await drainMainQueue()
+
+        XCTAssertEqual(
+            harness.model.closedLidError,
+            ClosedLidHelperFailure.connectionLostMessage
+        )
+        XCTAssertTrue(harness.model.closedLidHelperNeedsRepair)
+        XCTAssertTrue(harness.model.shouldOfferClosedLidHelperRepair)
+        XCTAssertEqual(harness.model.closedLidAttentionTitle, "Repair Advanced Helper")
+        XCTAssertEqual(harness.model.closedLidCompactActionTitle, "Repair")
+        XCTAssertEqual(harness.model.closedLidPrimaryActionTitle, "Repair Helper")
+    }
+
+    func testLostHelperConnectionStopsRetryingUntilTheHelperAnswers() async {
+        let harness = makeHarnessWithLostHelperConnection()
+
+        harness.model.start(scheduleTimers: false)
+        await drainMainQueue()
+        XCTAssertEqual(harness.helper.setClosedLidModeRequests, [true])
+
+        harness.model.evaluate()
+        harness.model.evaluate()
+        await drainMainQueue()
+
+        XCTAssertEqual(harness.helper.setClosedLidModeRequests, [true])
+    }
+
+    func testReachableHelperClearsLostConnectionWarning() async {
+        let harness = makeHarnessWithLostHelperConnection()
+
+        harness.model.start(scheduleTimers: false)
+        await drainMainQueue()
+        XCTAssertTrue(harness.model.shouldOfferClosedLidHelperRepair)
+
+        harness.helper.setClosedLidModeResult = .success(())
+        harness.helper.probeConnectionResult = .success(())
+        harness.helper.onSetClosedLidMode = { enabled in
+            harness.closedLidStatusReader.status = enabled ? .enabled : .disabled
+        }
+        harness.model.refreshAfterExternalPermissionChange()
+        await drainMainQueue()
+        await drainMainQueue()
+
+        XCTAssertEqual(harness.helper.probeConnectionCallCount, 1)
+        XCTAssertFalse(harness.model.closedLidHelperNeedsRepair)
+        XCTAssertFalse(harness.model.shouldOfferClosedLidHelperRepair)
+        XCTAssertNil(harness.model.closedLidError)
+        XCTAssertEqual(harness.model.closedLidStatus, .enabled)
+    }
+
+    func testUnreachableHelperKeepsLostConnectionWarning() async {
+        let harness = makeHarnessWithLostHelperConnection()
+        harness.helper.probeConnectionResult = .failure(.connectionLost)
+
+        harness.model.start(scheduleTimers: false)
+        await drainMainQueue()
+
+        harness.model.refreshAfterExternalPermissionChange()
+        await drainMainQueue()
+        await drainMainQueue()
+
+        XCTAssertEqual(harness.helper.probeConnectionCallCount, 1)
+        XCTAssertTrue(harness.model.shouldOfferClosedLidHelperRepair)
+        XCTAssertEqual(
+            harness.model.closedLidError,
+            ClosedLidHelperFailure.connectionLostMessage
+        )
+    }
+
+    func testHelperCommandFailureDoesNotOfferRepair() async {
+        let harness = AppModelHarness(
+            settings: UserSettings(enabled: true),
+            helperStatus: .enabled,
+            closedLidStatus: .disabled
+        )
+        harness.helper.setClosedLidModeResult = .failure(
+            ClosedLidHelperFailure.commandFailed("pmset exited with code 1.")
+        )
+
+        harness.model.start(scheduleTimers: false)
+        await drainMainQueue()
+
+        XCTAssertEqual(harness.model.closedLidError, "pmset exited with code 1.")
+        XCTAssertFalse(harness.model.closedLidHelperNeedsRepair)
+        XCTAssertFalse(harness.model.shouldOfferClosedLidHelperRepair)
+        XCTAssertEqual(harness.model.closedLidCompactActionTitle, "Set Up")
+    }
+
+    func testClearingTheErrorAlsoRetiresTheHelperRepairFlag() async {
+        let harness = makeHarnessWithLostHelperConnection()
+
+        harness.model.start(scheduleTimers: false)
+        await drainMainQueue()
+        XCTAssertTrue(harness.model.closedLidHelperNeedsRepair)
+        XCTAssertEqual(harness.helper.setClosedLidModeRequests, [true])
+
+        // Removing the helper clears the error without anything having proven
+        // the helper is reachable. `SMAppService` still reports `.enabled`, as
+        // it does through this whole class of failure, so the repair flag has
+        // to be retired with the error it belonged to. Left behind, it hides
+        // the warning panel and the Repair button while still blocking every
+        // retry, which strands closed-lid mode for the life of the process.
+        harness.model.removeClosedLidHelper()
+        await drainMainQueue()
+
+        XCTAssertNil(harness.model.closedLidError)
+        XCTAssertFalse(harness.model.closedLidHelperNeedsRepair)
+        XCTAssertFalse(harness.model.closedLidControlNeedsAttention)
+
+        harness.helper.setClosedLidModeResult = .success(())
+        harness.helper.onSetClosedLidMode = { enabled in
+            harness.closedLidStatusReader.status = enabled ? .enabled : .disabled
+        }
+        harness.model.evaluate()
+        await drainMainQueue()
+
+        XCTAssertEqual(harness.helper.setClosedLidModeRequests, [true, true])
+        XCTAssertEqual(harness.model.closedLidStatus, .enabled)
+    }
+
+    func testFailedRestoreBeforeHelperRemovalOffersRepair() async {
+        let harness = AppModelHarness(
+            settings: UserSettings(enabled: true),
+            helperStatus: .enabled,
+            closedLidStatus: .enabled,
+            ownershipRecord: ownedRecord()
+        )
+        harness.helper.setClosedLidModeResult = .failure(ClosedLidHelperFailure.connectionLost)
+
+        harness.model.start(scheduleTimers: false)
+        await drainMainQueue()
+
+        harness.model.removeClosedLidHelper()
+        await drainMainQueue()
+
+        // An unreachable helper cannot restore closed-lid mode, so the helper
+        // is kept and the user is left needing the one action that reconnects it.
+        XCTAssertEqual(harness.helper.unregisterCallCount, 0)
+        XCTAssertTrue(harness.model.shouldOfferClosedLidHelperRepair)
+        XCTAssertEqual(harness.model.closedLidCompactActionTitle, "Repair")
+    }
+
+    func testFailedRepairKeepsOfferingRepair() async {
+        let harness = makeHarnessWithLostHelperConnection()
+        harness.helper.repairRegistrationError = ClosedLidHelperFailure.commandFailed("Registration failed.")
+
+        harness.model.start(scheduleTimers: false)
+        await drainMainQueue()
+        XCTAssertTrue(harness.model.shouldOfferClosedLidHelperRepair)
+
+        harness.model.repairClosedLidHelper()
+        await drainMainQueue()
+
+        // The registration still reports `.enabled`, so Set Up would return
+        // early and do nothing. Repair has to stay the offered action.
+        XCTAssertEqual(harness.helper.repairRegistrationCallCount, 1)
+        XCTAssertTrue(harness.model.shouldOfferClosedLidHelperRepair)
+        XCTAssertEqual(
+            harness.model.closedLidMenuAttentionMessage,
+            "Repairing Lid Awake Helper failed: Registration failed."
+        )
+    }
+
+    func testStaleProbeReplyDoesNotClearANewerError() async {
+        let harness = makeHarnessWithLostHelperConnection()
+        harness.helper.shouldReplyToProbeConnection = false
+
+        harness.model.start(scheduleTimers: false)
+        await drainMainQueue()
+
+        // Opening the popover starts a probe.
+        harness.model.refreshAfterExternalPermissionChange()
+        await drainMainQueue()
+        XCTAssertEqual(harness.helper.probeConnectionCallCount, 1)
+
+        // The user presses Repair before that probe answers, and it fails, so a
+        // different failure is now the one on screen.
+        harness.helper.repairRegistrationError = ClosedLidHelperFailure.commandFailed("Registration failed.")
+        harness.model.repairClosedLidHelper()
+        await drainMainQueue()
+        let repairError = "Repairing Lid Awake Helper failed: Registration failed."
+        XCTAssertEqual(harness.model.closedLidError, repairError)
+
+        // The late reply only ever tested the failure it was launched against.
+        harness.helper.pendingProbeReply?(.success(()))
+        await drainMainQueue()
+
+        XCTAssertEqual(harness.model.closedLidError, repairError)
+        XCTAssertTrue(harness.model.shouldOfferClosedLidHelperRepair)
+    }
+
+    @MainActor
+    private func makeHarnessWithLostHelperConnection() -> AppModelHarness {
+        let harness = AppModelHarness(
+            settings: UserSettings(enabled: true),
+            helperStatus: .enabled,
+            closedLidStatus: .disabled
+        )
+        // A helper that refuses this client refuses every call, so the probe has
+        // to fail too. A fake that answered probes while dropping mode changes
+        // would describe a machine that does not exist.
+        harness.helper.setClosedLidModeResult = .failure(ClosedLidHelperFailure.connectionLost)
+        harness.helper.probeConnectionResult = .failure(.connectionLost)
+        return harness
+    }
+
     func testExternalAccessibilityGrantClearsStaleScreenLockError() async {
         let harness = AppModelHarness(
             settings: UserSettings(
@@ -682,6 +892,11 @@ private final class FakeClosedLidHelperService: ClosedLidHelperServicing {
     var onSetClosedLidMode: ((Bool) -> Void)?
     var setClosedLidModeResult: Result<Void, Error> = .success(())
     var shouldReplyToSetClosedLidMode = true
+    var probeConnectionResult: Result<Void, ClosedLidHelperFailure> = .success(())
+    var shouldReplyToProbeConnection = true
+    private(set) var pendingProbeReply: ((Result<Void, ClosedLidHelperFailure>) -> Void)?
+    private(set) var probeConnectionCallCount = 0
+    var repairRegistrationError: Error?
     private(set) var registerCallCount = 0
     private(set) var repairRegistrationCallCount = 0
     private(set) var unregisterCallCount = 0
@@ -697,6 +912,9 @@ private final class FakeClosedLidHelperService: ClosedLidHelperServicing {
 
     func repairRegistration() throws {
         repairRegistrationCallCount += 1
+        if let repairRegistrationError {
+            throw repairRegistrationError
+        }
     }
 
     func unregister() throws {
@@ -709,6 +927,16 @@ private final class FakeClosedLidHelperService: ClosedLidHelperServicing {
         if shouldReplyToSetClosedLidMode {
             reply(setClosedLidModeResult)
         }
+    }
+
+    func probeConnection(reply: @escaping (Result<Void, ClosedLidHelperFailure>) -> Void) {
+        probeConnectionCallCount += 1
+        guard shouldReplyToProbeConnection else {
+            pendingProbeReply = reply
+            return
+        }
+
+        reply(probeConnectionResult)
     }
 
     func openApprovalSettings() {

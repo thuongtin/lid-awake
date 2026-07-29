@@ -9,6 +9,9 @@ The format follows dated release sections after the first tagged release.
 - Fixed a blank Settings window when Settings was opened from anywhere other than the menu bar popover.
 - Fixed the software update window opening behind the frontmost app with no way to reach it, since the app has no Dock icon or app switcher entry while running as a menu bar accessory.
 - Fixed the menu bar popover detaching from its status item icon and floating below the menu bar.
+- Fixed a permanent "Closed-lid playback is blocked" warning that offered a Set Up button which did nothing. When the approved helper belongs to an older copy of the app, after an update, a move, or a reinstall, it refuses the connection while macOS still reports the registration as enabled. The warning now explains what happened, offers Repair, which is the action that actually reconnects, stops retrying a connection that cannot succeed, and clears itself once the helper answers again.
+- Fixed removing Lid Awake Helper while it is unreachable leaving no way forward. Closed-lid mode cannot be restored over a refused connection, so the removal is held back and Repair is offered instead.
+- Changed Lid Awake Helper to log connection rejections as readable text in the unified log instead of `<private>`, so these failures can be diagnosed from a user's machine.
 
 ## 0.1.6 - 2026-07-28
 
