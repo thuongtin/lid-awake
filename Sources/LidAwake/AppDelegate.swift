@@ -1,26 +1,14 @@
 import AppKit
 import OSLog
-import SwiftUI
-
-@main
-struct LidAwakeApplication: App {
-    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
-
-    init() {
-        AppCommandRunner.runIfNeeded()
-    }
-
-    var body: some Scene {
-        Settings {
-            EmptyView()
-        }
-    }
-}
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let model = AppModel()
-    private lazy var settingsWindowPresenter = SettingsWindowPresenter(model: model)
+    private let activationPolicyController = ActivationPolicyController.shared
+    private lazy var settingsWindowPresenter = SettingsWindowPresenter(
+        model: model,
+        activationPolicyController: activationPolicyController
+    )
     private var statusItemController: StatusItemController?
     private let logger = Logger(subsystem: "com.thuongtin.LidAwake", category: "app")
     private var didPresentClosedLidPermissionPrompt = false
@@ -47,7 +35,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         model.refreshAfterExternalPermissionChange()
     }
 
-    @objc func openSettings() {
+    @objc func showSettings(_ sender: Any?) {
+        openSettings()
+    }
+
+    func openSettings() {
         model.refreshAfterExternalPermissionChange()
         statusItemController?.closePopover()
         settingsWindowPresenter.show()
@@ -64,8 +56,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         didPresentClosedLidPermissionPrompt = true
-        NSApplication.shared.setActivationPolicy(.regular)
-        NSApplication.shared.activate(ignoringOtherApps: true)
+        activationPolicyController.beginForeground(.permissionPrompt)
 
         let alert = NSAlert()
         alert.alertStyle = .critical
@@ -83,7 +74,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case .alertSecondButtonReturn:
             openSettings()
         default:
-            NSApplication.shared.setActivationPolicy(.accessory)
+            break
         }
+
+        // Released after the settings window has claimed its own reason, so the app
+        // never blinks back to `.accessory` in between.
+        activationPolicyController.endForeground(.permissionPrompt)
     }
 }
