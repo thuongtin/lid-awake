@@ -525,42 +525,6 @@ private struct MetricTile: View {
     }
 }
 
-private struct IconActionButton: View {
-    @Environment(\.isEnabled) private var isEnabled
-
-    let title: String
-    let systemImage: String
-    let action: () -> Void
-
-    init(_ title: String, systemImage: String, action: @escaping () -> Void) {
-        self.title = title
-        self.systemImage = systemImage
-        self.action = action
-    }
-
-    var body: some View {
-        Button(action: action) {
-            VStack(spacing: 6) {
-                Image(systemName: systemImage)
-                    .font(.system(size: 16, weight: .semibold))
-
-                Text(title)
-                    .font(.caption.weight(.medium))
-            }
-            .frame(maxWidth: .infinity, minHeight: 54)
-            .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(isEnabled ? Color.primary : Color.secondary)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(isEnabled ? Color.primary.opacity(0.12) : Color.clear, lineWidth: 1)
-        }
-        .opacity(isEnabled ? 1 : 0.45)
-    }
-}
-
 private struct FooterButton: View {
     let title: String
     let systemImage: String
