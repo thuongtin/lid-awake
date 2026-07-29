@@ -4,10 +4,12 @@ import SwiftUI
 @MainActor
 final class SettingsWindowPresenter: NSObject, NSWindowDelegate {
     private weak var model: AppModel?
+    private let activationPolicyController: ActivationPolicyController
     private var window: NSWindow?
 
-    init(model: AppModel) {
+    init(model: AppModel, activationPolicyController: ActivationPolicyController) {
         self.model = model
+        self.activationPolicyController = activationPolicyController
     }
 
     func show() {
@@ -16,15 +18,13 @@ final class SettingsWindowPresenter: NSObject, NSWindowDelegate {
         }
 
         let settingsWindow = window(for: model)
-        NSApplication.shared.setActivationPolicy(.regular)
-        NSApplication.shared.unhide(nil)
-        NSApplication.shared.activate(ignoringOtherApps: true)
+        activationPolicyController.beginForeground(.settingsWindow)
         settingsWindow.makeKeyAndOrderFront(nil)
         settingsWindow.orderFrontRegardless()
     }
 
     func windowWillClose(_ notification: Notification) {
-        NSApplication.shared.setActivationPolicy(.accessory)
+        activationPolicyController.endForeground(.settingsWindow)
     }
 
     private func window(for model: AppModel) -> NSWindow {
