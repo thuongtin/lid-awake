@@ -4,6 +4,12 @@ All notable changes to Lid Awake will be documented in this file.
 
 The format follows dated release sections after the first tagged release.
 
+## 0.1.7 - 2026-07-29
+
+- Fixed a blank Settings window when Settings was opened from anywhere other than the menu bar popover.
+- Fixed the software update window opening behind the frontmost app with no way to reach it, since the app has no Dock icon or app switcher entry while running as a menu bar accessory.
+- Fixed the menu bar popover detaching from its status item icon and floating below the menu bar.
+
 ## 0.1.6 - 2026-07-28
 
 - Removed scheduled-stop controls from the menu bar popover while keeping the feature available in Settings.
