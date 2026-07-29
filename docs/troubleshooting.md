@@ -77,6 +77,32 @@ For local development, the staged app can run the same repair path without openi
 dist/LidAwake.app/Contents/MacOS/LidAwake --helper-repair
 ```
 
+## Helper Cannot Be Reached After An Update Or A Move
+
+If the app shows `Lid Awake could not reach Lid Awake Helper`, macOS started the helper and the helper refused the connection. This is not the same as a missing approval, and `SMAppService` cannot tell the two apart: it keeps reporting the registration as enabled either way.
+
+The registration is pinned to the app bundle that created it. The helper builds its accepted code signing requirement from its own Team ID, so it rejects a client that came from a different copy or a different build of Lid Awake. Updating in place, re-downloading the DMG and dragging over the old copy, moving the app, or keeping a second copy signed by another team all produce this.
+
+Use the in-app `Repair` action, which unregisters and re-registers from the copy that is actually running. `Set Up` cannot fix it, because registering is a no-op while the stale registration still reports as enabled.
+
+Confirm the cause from the helper side:
+
+```bash
+/usr/bin/log show --last 10m --predicate 'subsystem == "com.thuongtin.LidAwake.Helper"' --info
+```
+
+A rejection logs `Rejected XPC connection: client is not authorized` with the client PID. An accepted connection logs the requirement the helper enforced, which shows the Team ID it expects.
+
+Compare that against the app and helper on disk:
+
+```bash
+codesign -dv --verbose=4 /Applications/LidAwake.app 2>&1 | rg 'Identifier|TeamIdentifier'
+codesign -dv --verbose=4 /Applications/LidAwake.app/Contents/Library/LaunchServices/LidAwakeHelper 2>&1 | rg 'Identifier|TeamIdentifier'
+launchctl print system/com.thuongtin.LidAwake.Helper | rg 'parent bundle|program|state'
+```
+
+If `parent bundle version` does not match the running app's build number, the approved helper belongs to an older copy and needs a repair.
+
 ## Closed-Lid Mode Does Not Work
 
 Check the staged helper and app identity:
