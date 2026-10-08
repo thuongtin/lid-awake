@@ -278,7 +278,10 @@ struct SettingsView: View {
                         SmoothButton(model.closedLidPrimaryActionTitle, systemImage: "lock.shield") {
                             model.performClosedLidHelperAction()
                         }
-                        .disabled(model.closedLidHelperStatus == .enabled && !model.shouldOfferClosedLidHelperRepair)
+                        .disabled(
+                            (model.closedLidHelperStatus == .enabled && !model.shouldOfferClosedLidHelperRepair)
+                                || model.isChangingClosedLidMode
+                        )
 
                         SmoothButton("Remove", systemImage: "trash") {
                             model.removeClosedLidHelper()

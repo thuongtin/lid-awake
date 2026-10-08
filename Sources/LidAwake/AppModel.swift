@@ -40,12 +40,12 @@ protocol ClosedLidHelperServicing: AnyObject {
     func openApprovalSettings()
 }
 
-@MainActor
 /// Whether a display other than the built-in one is driving the desktop.
 protocol ExternalDisplayDetecting: AnyObject {
     var hasActiveExternalDisplay: Bool { get }
 }
 
+@MainActor
 protocol NotificationServicing: AnyObject {
     func handleTransition(from oldStatus: WakeStatus, to newStatus: WakeStatus)
 }
@@ -100,6 +100,7 @@ final class AppModel: ObservableObject {
 
     private static let closedLidModeChangeTimeoutMessage = ClosedLidHelperFailure.timedOutMessage
     static let closedLidHelperBusyMessage = "Wait for the helper update to finish, then remove Lid Awake Helper."
+    static let closedLidHelperUpdateInProgressMessage = "Wait for the helper update to finish, then try again."
 
     private let settingsStore: UserSettingsStoring
     private let closedLidOwnershipStore: ClosedLidOwnershipStoring
@@ -127,6 +128,10 @@ final class AppModel: ObservableObject {
     private var closedLidSideEffectsTimer: Timer?
     private var closedLidOwnershipRecord: ClosedLidOwnershipRecord?
     private var suppressedClosedLidTarget: Bool?
+    /// Whether the running helper watches this process, which it does only
+    /// after this process sent it an enable. A relaunch or a new helper
+    /// process starts without that.
+    private var closedLidRestoreWatchdogArmed = false
     /// Earliest time a failed closed-lid change is retried on its own.
     private var closedLidRetryNotBefore: Date?
     /// The `setClosedLidMode` request whose reply is still wanted.
@@ -503,6 +508,9 @@ final class AppModel: ObservableObject {
         logger.info("closed-lid helper reachable again, clearing repair prompt")
         closedLidError = nil
         suppressedClosedLidTarget = nil
+        // The helper may have been restarted while unreachable.
+        closedLidRestoreWatchdogArmed = false
+        lastClosedLidVerifiedAt = nil
         evaluate()
     }
 
@@ -665,6 +673,14 @@ final class AppModel: ObservableObject {
     }
 
     func setupClosedLidHelper() {
+        // A change or a removal in flight owns the helper until it settles;
+        // re-registering under it could let an enable land after the helper
+        // that would restore it is gone. Every change ends within its timeout.
+        guard !isChangingClosedLidMode else {
+            closedLidError = Self.closedLidHelperUpdateInProgressMessage
+            return
+        }
+
         if shouldOfferClosedLidHelperRepair {
             repairClosedLidHelper()
             return
@@ -696,13 +712,20 @@ final class AppModel: ObservableObject {
     }
 
     func repairClosedLidHelper() {
-        isChangingClosedLidMode = false
-        pendingClosedLidModeChange = nil
+        guard !isChangingClosedLidMode else {
+            closedLidError = Self.closedLidHelperUpdateInProgressMessage
+            return
+        }
+
         closedLidHelperRemovalRequested = false
         closedLidRetryNotBefore = nil
 
         do {
             try closedLidHelperService.repairRegistration()
+            closedLidRestoreWatchdogArmed = false
+            // Read again rather than trust the steady state, so the next
+            // evaluate reaches the watchdog check for the new helper process.
+            lastClosedLidVerifiedAt = nil
             syncClosedLidHelperStatus()
             suppressedClosedLidTarget = nil
             closedLidHelperNeedsRepair = false
@@ -1128,6 +1151,7 @@ final class AppModel: ObservableObject {
         if shouldEnableClosedLidMode {
             guard status != .enabled else {
                 clearClosedLidErrorUnlessRemovalPending()
+                rearmClosedLidRestoreWatchdogIfNeeded()
                 return
             }
 
@@ -1172,6 +1196,24 @@ final class AppModel: ObservableObject {
             saveClosedLidOwnershipRecord(record)
             setClosedLidMode(enabled: false, previousStatus: status)
         }
+    }
+
+    /// Sends the enable again when this app owns closed-lid mode but the
+    /// running helper is not watching this process, so a crash still gets
+    /// restored. The mode is already on, so the request changes nothing else
+    /// and the ownership record carries over.
+    private func rearmClosedLidRestoreWatchdogIfNeeded() {
+        guard appEnabledClosedLidMode,
+              !closedLidRestoreWatchdogArmed,
+              closedLidHelperStatus.canControlClosedLidMode,
+              !closedLidHelperNeedsRepair,
+              !closedLidHelperRemovalRequested,
+              suppressedClosedLidTarget != true else {
+            return
+        }
+
+        logger.info("re-sending closed-lid enable so the helper watches this process")
+        setClosedLidMode(enabled: true, previousStatus: .enabled)
     }
 
     private func setClosedLidMode(enabled: Bool, previousStatus: ClosedLidStatus) {
@@ -1259,6 +1301,7 @@ final class AppModel: ObservableObject {
                 at: Date()
             )
             saveClosedLidOwnershipRecord(nextRecord)
+            closedLidRestoreWatchdogArmed = enabled
             suppressedClosedLidTarget = nil
             closedLidRetryNotBefore = nil
             closedLidError = nil

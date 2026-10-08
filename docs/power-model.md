@@ -42,7 +42,7 @@ The app writes the record before it sends the enable request, not after the repl
 
 On a normal quit the app asks AppKit to wait (`terminateLater`), sends the restore to the helper without reading `pmset` first, and lets the app exit once the helper answers or after 5 seconds, whichever comes first. The deadline outlasts the helper's 4 second XPC deadline, so a reply that is on its way is not cut off. A restore that is still unconfirmed at exit keeps its ownership record for the next launch.
 
-If the app is force quit or crashes while it owns closed-lid mode, Lid Awake Helper notices the app process exit and restores closed-lid mode immediately. The ownership record is then retired the next time the app launches.
+If the app is force quit or crashes while it owns closed-lid mode, Lid Awake Helper notices the app process exit and restores closed-lid mode immediately. The ownership record is then retired the next time the app launches. The helper only watches the process that last sent it an enable, so after a relaunch, a helper repair, or a helper that answers again after being unreachable, the app sends the enable once more while it owns closed-lid mode. The mode is already on, so that request only re-arms the watch.
 
 The app never waits on `pmset` or a lock command on the main thread. Status reads, `displaysleepnow`, and the CGSession lock command run on background queues and hand their result back to the main thread, which checks its state again before acting on a result, since settings, helper replies, or a quit can arrive while a command runs.
 
@@ -78,3 +78,4 @@ When the user removes Lid Awake Helper while this app owns closed-lid mode, Lid 
 10. Force quit while closed-lid mode is on: `kill -9` the `LidAwake` process after this app enabled closed-lid mode. Within a second `pmset -g` should report `SleepDisabled 0`, and `/usr/bin/log show --last 1m --predicate 'subsystem == "com.thuongtin.LidAwake.Helper"'` should show the helper restore line. Relaunching the app should clear the stale ownership record without a warning.
 11. Command-line removal: with closed-lid mode enabled by the app, `LidAwake.app/Contents/MacOS/LidAwake --helper-remove` should restore `SleepDisabled 0` before printing `Not set up`. With the helper unapproved, it should fail and leave the helper registered.
 12. Remove during a change: pressing Remove in Settings is disabled while `Updating helper` is shown.
+13. Re-arm after Repair: with closed-lid mode enabled by the app and Repair offered in Settings, press Repair, wait for `Ready`, then `kill -9` the `LidAwake` process. Within a second `pmset -g` should report `SleepDisabled 0`.

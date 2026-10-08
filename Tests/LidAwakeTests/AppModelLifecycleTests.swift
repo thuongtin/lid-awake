@@ -314,6 +314,97 @@ final class AppModelLifecycleTests: XCTestCase {
         XCTAssertEqual(harness.loginItemService.setEnabledRequests, [false])
     }
 
+    func testSetUpAndRepairWaitWhileHelperRemovalIsUnderway() async {
+        let blockingWork = HeldBlockingWork()
+        let harness = AppModelHarness(
+            settings: UserSettings(enabled: false),
+            helperStatus: .enabled,
+            closedLidStatus: .disabled,
+            blockingWork: blockingWork
+        )
+        harness.model.start(scheduleTimers: false)
+        blockingWork.releaseAll()
+        await drainMainQueue()
+
+        // Removal holds the change flag while `pmset` answers. Repair used to
+        // drop that flag, which let an enable start underneath the removal and
+        // land after the helper that could restore it was gone.
+        harness.model.removeClosedLidHelper()
+        XCTAssertTrue(harness.model.isChangingClosedLidMode)
+
+        harness.model.repairClosedLidHelper()
+        harness.model.setupClosedLidHelper()
+
+        XCTAssertTrue(harness.model.isChangingClosedLidMode)
+        XCTAssertEqual(harness.helper.repairRegistrationCallCount, 0)
+        XCTAssertEqual(harness.helper.registerCallCount, 0)
+        XCTAssertEqual(harness.model.closedLidError, AppModel.closedLidHelperUpdateInProgressMessage)
+
+        blockingWork.releaseAll()
+        await drainMainQueue()
+
+        XCTAssertFalse(harness.model.isChangingClosedLidMode)
+        XCTAssertEqual(harness.helper.unregisterCallCount, 1)
+    }
+
+    func testRelaunchWithOwnedClosedLidModeRearmsTheHelperWatchdog() async {
+        let harness = AppModelHarness(
+            settings: UserSettings(enabled: true),
+            helperStatus: .enabled,
+            closedLidStatus: .enabled,
+            ownershipRecord: ownedRecord()
+        )
+
+        harness.model.start(scheduleTimers: false)
+        await drainMainQueue()
+
+        // The helper only watches the process that sent it an enable, and a
+        // new app process has sent none, so it is sent again once.
+        XCTAssertEqual(harness.helper.setClosedLidModeRequests, [true])
+        XCTAssertEqual(harness.ownershipStore.record?.ownedByThisApp, true)
+        XCTAssertEqual(harness.ownershipStore.record?.previousStatus, .disabled)
+
+        harness.model.evaluate(forceClosedLidStatusRead: true)
+        await drainMainQueue()
+
+        XCTAssertEqual(harness.helper.setClosedLidModeRequests, [true])
+    }
+
+    func testEnabledModeTheAppDoesNotOwnIsNotRearmed() async {
+        let harness = AppModelHarness(
+            settings: UserSettings(enabled: true),
+            helperStatus: .enabled,
+            closedLidStatus: .enabled
+        )
+
+        harness.model.start(scheduleTimers: false)
+        await drainMainQueue()
+
+        XCTAssertTrue(harness.helper.setClosedLidModeRequests.isEmpty)
+        XCTAssertNil(harness.ownershipStore.record)
+    }
+
+    func testRepairRearmsTheWatchdogForOwnedClosedLidMode() async {
+        let harness = AppModelHarness(
+            settings: UserSettings(enabled: true),
+            helperStatus: .enabled,
+            closedLidStatus: .disabled
+        )
+        harness.helper.onSetClosedLidMode = { enabled in
+            harness.closedLidStatusReader.status = enabled ? .enabled : .disabled
+        }
+        harness.model.start(scheduleTimers: false)
+        await drainMainQueue()
+        XCTAssertEqual(harness.helper.setClosedLidModeRequests, [true])
+
+        // Repair replaces the helper process, and its watchdog with it.
+        harness.model.repairClosedLidHelper()
+        await drainMainQueue()
+
+        XCTAssertEqual(harness.helper.setClosedLidModeRequests, [true, true])
+        XCTAssertEqual(harness.ownershipStore.record?.ownedByThisApp, true)
+    }
+
     func testRemoveHelperUnregistersDirectlyWithoutOwnership() async {
         let harness = AppModelHarness(
             settings: UserSettings(enabled: false),
@@ -516,7 +607,8 @@ final class AppModelLifecycleTests: XCTestCase {
         await waitUntil { completions > 0 }
 
         XCTAssertEqual(completions, 1)
-        XCTAssertEqual(harness.helper.setClosedLidModeRequests, [false])
+        // The launch re-arms the helper watchdog, then quit restores.
+        XCTAssertEqual(harness.helper.setClosedLidModeRequests, [true, false])
         // Kept for the next launch; the helper restores on its own once the
         // app process is gone.
         XCTAssertEqual(harness.ownershipStore.record?.ownedByThisApp, true)
