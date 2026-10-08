@@ -663,7 +663,12 @@ final class AppModel: ObservableObject {
 
     func updateLidClosedDisplayMode(_ mode: LidClosedDisplayMode) {
         suppressedClosedLidTarget = nil
-        closedLidHelperRemovalRequested = false
+        // Picking a mode after a failed removal asks for closed-lid mode
+        // again, but it cannot cancel a removal still underway, and that one
+        // relies on the flag if unregistering then fails.
+        if !isChangingClosedLidMode {
+            closedLidHelperRemovalRequested = false
+        }
         updateSettings { settings in
             settings.lidClosedDisplayMode = mode
             if mode == .keepDisplayOn {

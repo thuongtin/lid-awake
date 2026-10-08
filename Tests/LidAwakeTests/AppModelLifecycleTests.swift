@@ -207,6 +207,35 @@ final class AppModelLifecycleTests: XCTestCase {
         XCTAssertEqual(harness.helper.unregisterCallCount, 0)
     }
 
+    func testChangingTheDisplayModeDuringRemovalKeepsItPending() async {
+        let harness = AppModelHarness(
+            settings: UserSettings(enabled: true),
+            helperStatus: .enabled,
+            closedLidStatus: .disabled
+        )
+        harness.helper.onSetClosedLidMode = { enabled in
+            harness.closedLidStatusReader.status = enabled ? .enabled : .disabled
+        }
+
+        harness.model.start(scheduleTimers: false)
+        await drainMainQueue()
+
+        harness.helper.onSetClosedLidMode = nil
+        harness.helper.setClosedLidModeResult = .failure(NSError(domain: "Restore", code: 1))
+        harness.model.removeClosedLidHelper()
+        XCTAssertTrue(harness.model.isChangingClosedLidMode)
+
+        // The picker cannot cancel a removal already underway, so it must not
+        // drop the guard the failed removal relies on.
+        harness.model.updateLidClosedDisplayMode(.turnDisplayOff)
+        await drainMainQueue()
+        harness.model.evaluate(forceClosedLidStatusRead: true)
+        await drainMainQueue()
+
+        XCTAssertTrue(harness.model.closedLidError?.contains("Could not restore closed-lid mode") == true)
+        XCTAssertEqual(harness.helper.setClosedLidModeRequests, [true, false])
+    }
+
     func testAFailedEnableIsNotRetriedOnEveryEvaluate() async {
         let harness = AppModelHarness(
             settings: UserSettings(enabled: true),
