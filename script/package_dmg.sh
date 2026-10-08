@@ -25,7 +25,10 @@ if [[ "$ALLOW_NON_DEVELOPER_ID_RELEASE" != "1" ]]; then
     exit 2
   fi
 
-  if ! codesign -dv --verbose=2 "$APP_BUNDLE" 2>&1 | grep -q '^Authority=Developer ID Application:'; then
+  # Captured first: grep -q exits on the first match, and with pipefail the
+  # SIGPIPE codesign then gets would fail a correctly signed app.
+  signing_info="$(codesign -dv --verbose=2 "$APP_BUNDLE" 2>&1 || true)"
+  if ! grep -q '^Authority=Developer ID Application:' <<<"$signing_info"; then
     echo "error: $APP_BUNDLE is not signed with a Developer ID Application identity" >&2
     exit 2
   fi
