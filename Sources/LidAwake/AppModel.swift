@@ -162,7 +162,8 @@ final class AppModel: ObservableObject {
             ),
             closedLidLockCoordinator: ClosedLidLockCoordinator(
                 clamshellStateReader: IOKitClamshellStateReader(),
-                deviceLocker: screenLocker
+                deviceLocker: screenLocker,
+                screenLockStateReader: CGSessionScreenLockStateReader()
             ),
             notificationService: SystemNotificationService(),
             initialBattery: BatteryState.desktopOrUnknown(
