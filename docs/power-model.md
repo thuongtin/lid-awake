@@ -40,7 +40,11 @@ Lid Awake persists closed-lid ownership separately from user settings. The recor
 
 The app writes the record before it sends the enable request, not after the reply. The helper can apply `disablesleep 1` and still miss the app's XPC deadline, and the app can quit or crash while the request is in flight, so a record written only on a successful reply could leave the setting on with nothing that knows to restore it. A record for an enable that never landed is harmless: cleanup retires it once `pmset` reports the mode as disabled. A status that cannot be read is not treated as disabled, so it never retires a record by itself.
 
+On a normal quit the app asks AppKit to wait (`terminateLater`), sends the restore to the helper without reading `pmset` first, and lets the app exit once the helper answers or after 5 seconds, whichever comes first. The deadline outlasts the helper's 4 second XPC deadline, so a reply that is on its way is not cut off. A restore that is still unconfirmed at exit keeps its ownership record for the next launch.
+
 If the app is force quit or crashes while it owns closed-lid mode, Lid Awake Helper notices the app process exit and restores closed-lid mode immediately. The ownership record is then retired the next time the app launches.
+
+The app never waits on `pmset` or a lock command on the main thread. Status reads, `displaysleepnow`, and the CGSession lock command run on background queues and hand their result back to the main thread, which checks its state again before acting on a result, since settings, helper replies, or a quit can arrive while a command runs.
 
 On launch, the app reloads that ownership record, syncs helper status, reads the current closed-lid status, and restores closed-lid mode when the persisted ownership says this app enabled it but current settings and status no longer require it.
 

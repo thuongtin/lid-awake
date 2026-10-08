@@ -66,7 +66,9 @@ final class CGEventScreenLockShortcutPoster: ScreenLockShortcutPosting {
     }
 
     func postLockScreenShortcut() throws {
-        guard Self.hasAccessibilityPermission(prompt: true) else {
+        // `AppModel` asks for Accessibility once per launch. Prompting here
+        // would queue a system dialog on every closed-lid lock attempt.
+        guard Self.hasAccessibilityPermission(prompt: false) else {
             throw ScreenLockError.accessibilityPermissionRequired
         }
 
@@ -122,34 +124,73 @@ struct SystemScreenLockPermissionChecker: ScreenLockPermissionChecking {
     }
 }
 
+/// Locks the screen without holding the caller on a lock command.
+///
+/// The command path runs on `blockingWork` and reports a failure later
+/// through `failureHandler`. The keyboard shortcut path only posts events, so
+/// it stays synchronous and still throws when Accessibility is missing.
 final class SystemScreenLockService: DeviceLocking {
-    /// Runs from the main actor's side-effects timer, so a hung lock command
-    /// must not be able to hold it.
     static let commandTimeout: TimeInterval = 2
 
-    private let shortcutPoster: ScreenLockShortcutPosting
+    var failureHandler: (@MainActor (String) -> Void)?
 
-    init(shortcutPoster: ScreenLockShortcutPosting = CGEventScreenLockShortcutPoster()) {
+    private let shortcutPoster: ScreenLockShortcutPosting
+    private let resolveMethod: () -> ScreenLockMethod
+    private let blockingWork: BlockingWorkPerforming
+    private let runCommand: (ScreenLockCommand) -> ProcessResult
+    /// Touched only on the main actor, where requests start and finish.
+    private var isRunning = false
+
+    init(
+        shortcutPoster: ScreenLockShortcutPosting = CGEventScreenLockShortcutPoster(),
+        resolveMethod: @escaping () -> ScreenLockMethod = { ScreenLockCommandResolver.resolve() },
+        blockingWork: BlockingWorkPerforming = BackgroundBlockingWork(label: "com.thuongtin.LidAwake.screen-lock"),
+        runCommand: @escaping (ScreenLockCommand) -> ProcessResult = { command in
+            ProcessRunner.run(
+                command.executablePath,
+                arguments: command.arguments,
+                timeout: SystemScreenLockService.commandTimeout
+            )
+        }
+    ) {
         self.shortcutPoster = shortcutPoster
+        self.resolveMethod = resolveMethod
+        self.blockingWork = blockingWork
+        self.runCommand = runCommand
     }
 
     func lockScreenNow() throws {
-        switch ScreenLockCommandResolver.resolve() {
+        switch resolveMethod() {
         case let .command(command):
-            try run(command)
+            run(command)
         case .keyboardShortcut:
             try shortcutPoster.postLockScreenShortcut()
         }
     }
 
-    private func run(_ command: ScreenLockCommand) throws {
-        let result = ProcessRunner.run(
-            command.executablePath,
-            arguments: command.arguments,
-            timeout: Self.commandTimeout
-        )
-        guard !result.timedOut, result.status == 0 else {
-            throw ScreenLockError.commandFailed(result.status, result.output)
+    private func run(_ command: ScreenLockCommand) {
+        guard !isRunning else {
+            return
         }
+
+        isRunning = true
+        let runCommand = runCommand
+        blockingWork.perform({
+            runCommand(command)
+        }, then: { [weak self] result in
+            guard let self else {
+                return
+            }
+
+            isRunning = false
+            guard result.timedOut || result.status != 0 else {
+                return
+            }
+
+            let error: ScreenLockError = result.timedOut
+                ? .commandFailed(result.status, "The screen lock command did not finish in time.")
+                : .commandFailed(result.status, result.output)
+            failureHandler?(error.localizedDescription)
+        })
     }
 }

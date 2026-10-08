@@ -248,6 +248,7 @@ final class AppModelLifecycleTests: XCTestCase {
         harness.helper.shouldReplyToSetClosedLidMode = false
 
         harness.model.start(scheduleTimers: false)
+        await drainMainQueue()
         XCTAssertTrue(harness.model.isChangingClosedLidMode)
 
         try? await Task.sleep(nanoseconds: 120_000_000)
@@ -338,10 +339,94 @@ final class AppModelLifecycleTests: XCTestCase {
         harness.helper.onSetClosedLidMode = { enabled in
             harness.closedLidStatusReader.status = enabled ? .enabled : .disabled
         }
-        harness.model.stop()
+        let readsBeforeQuit = harness.closedLidStatusReader.readCount
+        var completions = 0
+        harness.model.prepareForTermination {
+            completions += 1
+        }
+        await drainMainQueue()
 
+        XCTAssertEqual(completions, 1)
         XCTAssertEqual(harness.helper.setClosedLidModeRequests, [true, false])
         XCTAssertNil(harness.ownershipStore.record)
+        XCTAssertEqual(harness.closedLidStatusReader.readCount, readsBeforeQuit)
+
+        // The fallback deadline must not report a second time.
+        try? await Task.sleep(nanoseconds: 700_000_000)
+        await drainMainQueue()
+        XCTAssertEqual(completions, 1)
+    }
+
+    func testQuitDoesNotWaitForeverOnAHelperThatNeverAnswers() async {
+        let harness = AppModelHarness(
+            settings: UserSettings(enabled: true),
+            helperStatus: .enabled,
+            closedLidStatus: .enabled,
+            ownershipRecord: ownedRecord(),
+            terminationRestoreTimeout: 0.1
+        )
+        harness.model.start(scheduleTimers: false)
+        await drainMainQueue()
+
+        harness.helper.shouldReplyToSetClosedLidMode = false
+        var completions = 0
+        harness.model.prepareForTermination {
+            completions += 1
+        }
+        await drainMainQueue()
+        XCTAssertEqual(completions, 0)
+
+        await waitUntil { completions > 0 }
+
+        XCTAssertEqual(completions, 1)
+        XCTAssertEqual(harness.helper.setClosedLidModeRequests, [false])
+        // Kept for the next launch; the helper restores on its own once the
+        // app process is gone.
+        XCTAssertEqual(harness.ownershipStore.record?.ownedByThisApp, true)
+        XCTAssertNotNil(harness.ownershipStore.record?.lastAttemptedRestoreAt)
+    }
+
+    func testQuitWithoutOwnershipCompletesAtOnce() async {
+        let harness = AppModelHarness(
+            settings: UserSettings(enabled: false),
+            helperStatus: .enabled,
+            closedLidStatus: .enabled
+        )
+        harness.model.start(scheduleTimers: false)
+        await drainMainQueue()
+
+        var completions = 0
+        harness.model.prepareForTermination {
+            completions += 1
+        }
+
+        XCTAssertEqual(completions, 1)
+        XCTAssertTrue(harness.helper.setClosedLidModeRequests.isEmpty)
+    }
+
+    func testSlowClosedLidStatusReadDoesNotBlockTheMainActor() async {
+        let harness = AppModelHarness(
+            settings: UserSettings(enabled: true),
+            helperStatus: .enabled,
+            closedLidStatus: .disabled,
+            blockingWork: BackgroundBlockingWork()
+        )
+        let gate = DispatchSemaphore(value: 0)
+        harness.closedLidStatusReader.gate = gate
+
+        let startedAt = Date()
+        harness.model.start(scheduleTimers: false)
+        harness.model.refreshAfterExternalPermissionChange()
+
+        XCTAssertLessThan(Date().timeIntervalSince(startedAt), 1)
+        XCTAssertEqual(harness.model.closedLidStatus, .notReported)
+
+        for _ in 0..<10 {
+            gate.signal()
+        }
+        await waitUntil { !harness.helper.setClosedLidModeRequests.isEmpty }
+
+        XCTAssertEqual(harness.helper.setClosedLidModeRequests, [true])
     }
 
     func testRemoveHelperWaitsForInFlightClosedLidChange() async {
@@ -664,11 +749,32 @@ final class AppModelLifecycleTests: XCTestCase {
         await drainMainQueue()
 
         XCTAssertNil(harness.model.closedLidLockError)
+        // One refresh for the external change, one from the evaluate it runs.
         XCTAssertEqual(
             harness.screenLockPermissionChecker.promptRequests,
-            [false, true, false, false, false, false]
+            [false, true, false, false]
         )
         XCTAssertEqual(harness.deviceLocker.lockCount, 1)
+    }
+
+    func testAccessibilityPromptIsShownAtMostOncePerLaunch() async {
+        let harness = AppModelHarness(
+            settings: UserSettings(enabled: true, lockScreenWhenLidCloses: true),
+            helperStatus: .enabled,
+            closedLidStatus: .enabled
+        )
+        harness.screenLockPermissionChecker.requiresAccessibilityPermission = true
+        harness.screenLockPermissionChecker.hasPermission = false
+
+        harness.model.start(scheduleTimers: false)
+        await drainMainQueue()
+        for _ in 0..<3 {
+            harness.model.updateSettings { $0.lockScreenWhenLidCloses = false }
+            harness.model.updateSettings { $0.lockScreenWhenLidCloses = true }
+        }
+        await drainMainQueue()
+
+        XCTAssertEqual(harness.screenLockPermissionChecker.promptRequests.filter { $0 }.count, 1)
     }
 
     func testStartupDoesNotLockWhenLidWasAlreadyClosed() async {
@@ -954,7 +1060,9 @@ private final class AppModelHarness {
             feedURL: nil
         ),
         clock: FakeClock = FakeClock(),
-        closedLidModeChangeTimeout: TimeInterval = 6
+        closedLidModeChangeTimeout: TimeInterval = 6,
+        blockingWork: BlockingWorkPerforming = DeferredBlockingWork(),
+        terminationRestoreTimeout: TimeInterval = 0.5
     ) {
         self.settingsStore = FakeSettingsStore(settings: settings)
         self.ownershipStore = FakeClosedLidOwnershipStore(record: ownershipRecord)
@@ -985,7 +1093,9 @@ private final class AppModelHarness {
             ),
             notificationService: notificationService,
             initialBattery: batteryMonitor.currentState(),
-            closedLidModeChangeTimeout: closedLidModeChangeTimeout
+            closedLidModeChangeTimeout: closedLidModeChangeTimeout,
+            blockingWork: blockingWork,
+            terminationRestoreTimeout: terminationRestoreTimeout
         )
     }
 }
@@ -1052,6 +1162,8 @@ private final class FakeLoginItemService: LoginItemServicing {
 
 private final class FakeClosedLidStatusReader: ClosedLidStatusReading {
     var status: ClosedLidStatus
+    /// When set, every read waits on it, like a `pmset` that stopped answering.
+    var gate: DispatchSemaphore?
     private(set) var readCount = 0
 
     init(status: ClosedLidStatus) {
@@ -1060,9 +1172,11 @@ private final class FakeClosedLidStatusReader: ClosedLidStatusReading {
 
     func readClosedLidStatus() -> ClosedLidStatus {
         readCount += 1
+        _ = gate?.wait(timeout: .now() + 5)
         return status
     }
 }
+
 
 private final class FakeClosedLidHelperService: ClosedLidHelperServicing {
     var status: ClosedLidHelperStatus
@@ -1269,10 +1383,22 @@ private func ownedRecord() -> ClosedLidOwnershipRecord {
     )
 }
 
+/// Lets main-queue work settle. A helper reply, the status read it triggers,
+/// and the follow-up that read schedules each take a turn of their own.
 private func drainMainQueue() async {
-    await withCheckedContinuation { continuation in
-        DispatchQueue.main.async {
-            continuation.resume()
+    for _ in 0..<10 {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.main.async {
+                continuation.resume()
+            }
         }
+    }
+}
+
+@MainActor
+private func waitUntil(timeout: TimeInterval = 3, _ condition: () -> Bool) async {
+    let deadline = Date().addingTimeInterval(timeout)
+    while !condition(), Date() < deadline {
+        try? await Task.sleep(nanoseconds: 10_000_000)
     }
 }

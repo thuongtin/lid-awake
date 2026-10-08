@@ -12,6 +12,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItemController: StatusItemController?
     private let logger = Logger(subsystem: "com.thuongtin.LidAwake", category: "app")
     private var didPresentClosedLidPermissionPrompt = false
+    private var isPreparingToTerminate = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         logger.info("applicationDidFinishLaunching")
@@ -23,6 +24,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
             self?.presentClosedLidPermissionPromptIfNeeded()
         }
+    }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        // A second quit while the restore runs waits on the first one.
+        guard !isPreparingToTerminate else {
+            return .terminateLater
+        }
+
+        isPreparingToTerminate = true
+        logger.info("applicationShouldTerminate")
+        model.prepareForTermination {
+            sender.reply(toApplicationShouldTerminate: true)
+        }
+        return .terminateLater
     }
 
     func applicationWillTerminate(_ notification: Notification) {
