@@ -30,11 +30,17 @@ Advanced helper label: `com.thuongtin.LidAwake.Helper`.
 
 The privileged helper accepts XPC clients only when macOS code signing information identifies the client as the bundled `Lid Awake` app with identifier `com.thuongtin.LidAwake` and a Team ID matching the helper build. The helper rejects unauthorized local clients before exporting its XPC object or resuming the connection. In addition to that accept-time check, the helper pins each accepted connection with an OS-enforced code signing requirement (identifier plus Apple anchor plus Team ID) via `setCodeSigningRequirement`, so macOS re-verifies the peer for the lifetime of the connection rather than only at accept time.
 
-The helper exposes only two operations: read the closed-lid power status and set closed-lid mode through the approved `pmset -a disablesleep` command path.
+The helper exposes only two operations: read the closed-lid power status and set closed-lid mode through the approved `pmset -a disablesleep` command path. It runs those `pmset` changes one at a time on a single serial queue, and every `pmset` call it makes has a hard timeout so a hung `pmset` cannot wedge the helper.
+
+The helper also restores closed-lid mode on its own in one case: when the authorized client process that last asked to enable it exits without a successful disable afterwards. It learns that process from the accepted connection, watches it with a dispatch process source, and only ever runs `pmset -a disablesleep 0` in response. No client input reaches this path beyond the process identifier macOS reports for an already-authorized connection.
 
 ## Crash recovery
 
 Lid Awake persists closed-lid ownership separately from user settings. The record stores whether this app owns the current closed-lid mode change, when it enabled the mode, the previous reported status, and the last attempted restore time.
+
+The app writes the record before it sends the enable request, not after the reply. The helper can apply `disablesleep 1` and still miss the app's XPC deadline, and the app can quit or crash while the request is in flight, so a record written only on a successful reply could leave the setting on with nothing that knows to restore it. A record for an enable that never landed is harmless: cleanup retires it once `pmset` reports the mode as disabled. A status that cannot be read is not treated as disabled, so it never retires a record by itself.
+
+If the app is force quit or crashes while it owns closed-lid mode, Lid Awake Helper notices the app process exit and restores closed-lid mode immediately. The ownership record is then retired the next time the app launches.
 
 On launch, the app reloads that ownership record, syncs helper status, reads the current closed-lid status, and restores closed-lid mode when the persisted ownership says this app enabled it but current settings and status no longer require it.
 
@@ -42,7 +48,7 @@ If helper approval is missing or the helper is not ready, the app keeps the owne
 
 The app does not disable a closed-lid mode it did not enable. If macOS already reported closed-lid mode as enabled before Lid Awake asked for a change, that system state is shown but not claimed as app ownership.
 
-When the user removes Lid Awake Helper while this app owns closed-lid mode, Lid Awake restores closed-lid mode first and unregisters the helper only after restore succeeds. If restore fails, the helper stays registered so the app can retry cleanup.
+When the user removes Lid Awake Helper while this app owns closed-lid mode, Lid Awake restores closed-lid mode first and unregisters the helper only after restore succeeds. If restore fails, the helper stays registered so the app can retry cleanup. Removal is refused while a closed-lid change is still in flight, and a removal that fails after restore does not turn closed-lid mode back on. `LidAwake --helper-remove` follows the same order from the command line.
 
 ## Safety Defaults
 
@@ -65,3 +71,6 @@ When the user removes Lid Awake Helper while this app owns closed-lid mode, Lid 
 7. Manual hold disabled: assertion should release.
 8. Battery guardrail: fake or manual low-battery state should release the assertion and restore closed-lid mode if this app enabled it.
 9. Quit app: no app-owned assertion should remain, and closed-lid mode should be restored if this app enabled it.
+10. Force quit while closed-lid mode is on: `kill -9` the `LidAwake` process after this app enabled closed-lid mode. Within a second `pmset -g` should report `SleepDisabled 0`, and `/usr/bin/log show --last 1m --predicate 'subsystem == "com.thuongtin.LidAwake.Helper"'` should show the helper restore line. Relaunching the app should clear the stale ownership record without a warning.
+11. Command-line removal: with closed-lid mode enabled by the app, `LidAwake.app/Contents/MacOS/LidAwake --helper-remove` should restore `SleepDisabled 0` before printing `Not set up`. With the helper unapproved, it should fail and leave the helper registered.
+12. Remove during a change: pressing Remove in Settings is disabled while `Updating helper` is shown.

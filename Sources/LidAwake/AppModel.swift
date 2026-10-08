@@ -84,6 +84,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var closedLidHelperNeedsRepair = false
 
     private static let closedLidModeChangeTimeoutMessage = ClosedLidHelperFailure.timedOutMessage
+    static let closedLidHelperBusyMessage = "Wait for the helper update to finish, then remove Lid Awake Helper."
 
     private let settingsStore: UserSettingsStoring
     private let closedLidOwnershipStore: ClosedLidOwnershipStoring
@@ -106,7 +107,16 @@ final class AppModel: ObservableObject {
     private var closedLidSideEffectsTimer: Timer?
     private var closedLidOwnershipRecord: ClosedLidOwnershipRecord?
     private var suppressedClosedLidTarget: Bool?
-    private var closedLidModeChangeID: UUID?
+    /// The `setClosedLidMode` request whose reply is still wanted.
+    private struct ClosedLidModeChange {
+        let id: UUID
+        let enabled: Bool
+    }
+    private var pendingClosedLidModeChange: ClosedLidModeChange?
+    /// Set while a requested helper removal has not gone through, so a removal
+    /// that fails after closed-lid mode was restored does not get undone by the
+    /// next evaluate turning it straight back on.
+    private var closedLidHelperRemovalRequested = false
     /// Identifies the probe whose reply is still wanted. Nil means none is in
     /// flight, or the state it was testing has already moved on.
     private var closedLidHelperProbeID: UUID?
@@ -495,6 +505,7 @@ final class AppModel: ObservableObject {
 
     func updateLidClosedDisplayMode(_ mode: LidClosedDisplayMode) {
         suppressedClosedLidTarget = nil
+        closedLidHelperRemovalRequested = false
         updateSettings { settings in
             settings.lidClosedDisplayMode = mode
             if mode == .keepDisplayOn {
@@ -509,6 +520,7 @@ final class AppModel: ObservableObject {
             return
         }
 
+        closedLidHelperRemovalRequested = false
         do {
             try closedLidHelperService.register()
             syncClosedLidHelperStatus()
@@ -534,7 +546,8 @@ final class AppModel: ObservableObject {
 
     func repairClosedLidHelper() {
         isChangingClosedLidMode = false
-        closedLidModeChangeID = nil
+        pendingClosedLidModeChange = nil
+        closedLidHelperRemovalRequested = false
 
         do {
             try closedLidHelperService.repairRegistration()
@@ -588,9 +601,15 @@ final class AppModel: ObservableObject {
     }
 
     func removeClosedLidHelper() {
-        isChangingClosedLidMode = false
-        closedLidModeChangeID = nil
+        // An enable still in flight can land after the status read below, and
+        // removing the helper then would leave closed-lid mode on with no way
+        // to restore it.
+        guard !isChangingClosedLidMode else {
+            closedLidError = Self.closedLidHelperBusyMessage
+            return
+        }
 
+        closedLidHelperRemovalRequested = true
         syncClosedLidHelperStatus()
         syncClosedLidStatus()
 
@@ -648,6 +667,7 @@ final class AppModel: ObservableObject {
     private func unregisterClosedLidHelper() {
         do {
             try closedLidHelperService.unregister()
+            closedLidHelperRemovalRequested = false
             syncClosedLidHelperStatus()
             closedLidError = nil
         } catch {
@@ -858,7 +878,7 @@ final class AppModel: ObservableObject {
                 return
             }
 
-            guard suppressedClosedLidTarget != true else {
+            guard suppressedClosedLidTarget != true, !closedLidHelperRemovalRequested else {
                 return
             }
 
@@ -907,9 +927,19 @@ final class AppModel: ObservableObject {
 
     private func setClosedLidMode(enabled: Bool, previousStatus: ClosedLidStatus) {
         let changeID = UUID()
-        closedLidModeChangeID = changeID
+        pendingClosedLidModeChange = ClosedLidModeChange(id: changeID, enabled: enabled)
         isChangingClosedLidMode = true
         closedLidError = nil
+        if enabled {
+            let intentRecord = ClosedLidOwnershipReducer.recordBeforeEnabling(
+                previousStatus: previousStatus,
+                existingRecord: closedLidOwnershipRecord,
+                at: Date()
+            )
+            if intentRecord != closedLidOwnershipRecord {
+                saveClosedLidOwnershipRecord(intentRecord)
+            }
+        }
         scheduleClosedLidModeChangeTimeout(
             changeID: changeID,
             enabled: enabled,
@@ -960,11 +990,11 @@ final class AppModel: ObservableObject {
         previousStatus: ClosedLidStatus,
         status: ClosedLidStatus
     ) {
-        guard closedLidModeChangeID == changeID else {
+        guard pendingClosedLidModeChange?.id == changeID else {
             return
         }
 
-        closedLidModeChangeID = nil
+        pendingClosedLidModeChange = nil
         isChangingClosedLidMode = false
         closedLidStatus = status
 
@@ -995,7 +1025,7 @@ final class AppModel: ObservableObject {
         enabled: Bool,
         previousStatus: ClosedLidStatus
     ) {
-        guard closedLidModeChangeID == changeID else {
+        guard pendingClosedLidModeChange?.id == changeID else {
             return
         }
 
@@ -1011,7 +1041,7 @@ final class AppModel: ObservableObject {
             return
         }
 
-        closedLidModeChangeID = nil
+        pendingClosedLidModeChange = nil
         isChangingClosedLidMode = false
         syncClosedLidHelperStatus()
         closedLidStatus = status
@@ -1156,13 +1186,17 @@ final class AppModel: ObservableObject {
             return
         }
 
+        // An enable still in flight can land after the status read below, so it
+        // counts as applied rather than letting a stale `.disabled` retire the
+        // record and leave closed-lid mode on after the app exits.
+        let enableInFlight = pendingClosedLidModeChange?.enabled == true
         syncClosedLidHelperStatus()
         syncClosedLidStatus()
 
         switch ClosedLidOwnershipReducer.restoreAction(
             record: closedLidOwnershipRecord,
             desiredClosedLidMode: false,
-            currentStatus: closedLidStatus,
+            currentStatus: enableInFlight ? .enabled : closedLidStatus,
             helperCanControlClosedLidMode: closedLidHelperStatus.canControlClosedLidMode,
             attemptedAt: Date()
         ) {

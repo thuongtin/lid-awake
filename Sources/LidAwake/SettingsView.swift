@@ -271,7 +271,7 @@ struct SettingsView: View {
                         SmoothButton("Remove", systemImage: "trash") {
                             model.removeClosedLidHelper()
                         }
-                        .disabled(model.closedLidHelperStatus == .notRegistered)
+                        .disabled(model.closedLidHelperStatus == .notRegistered || model.isChangingClosedLidMode)
                     }
 
                     if model.isChangingClosedLidMode {

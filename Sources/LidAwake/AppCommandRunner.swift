@@ -1,3 +1,4 @@
+import LidAwakeCore
 import Foundation
 
 enum AppCommandRunner {
@@ -15,7 +16,11 @@ enum AppCommandRunner {
                 try helperService.repairRegistration()
                 print(helperService.status.displayText)
             case "--helper-remove":
-                try helperService.unregister()
+                try ClosedLidHelperRemoval.removeHelper(
+                    helperService: helperService,
+                    statusReader: PMSetService(),
+                    ownershipStore: UserDefaultsClosedLidOwnershipStore()
+                )
                 print(helperService.status.displayText)
             case "--helper-status":
                 print(helperService.status.displayText)
