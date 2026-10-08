@@ -237,24 +237,31 @@ final class AppModel: ObservableObject {
             return
         }
 
+        // Common modes, so the timers keep running while a modal alert or a
+        // tracking menu spins the run loop in a mode of its own. The callbacks
+        // run in place rather than through a main-actor task, which would wait
+        // on the main queue, and a modal loop started from a main-queue block
+        // does not drain it.
         timer?.invalidate()
-        let evaluateTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
-            Task { @MainActor in
+        let evaluateTimer = Timer(timeInterval: 5, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
                 self?.evaluate()
             }
         }
         // Give the kernel slack to coalesce these periodic wakeups with other
         // timers so a long-lived background process does not defeat App Nap.
         evaluateTimer.tolerance = 1
+        RunLoop.main.add(evaluateTimer, forMode: .common)
         timer = evaluateTimer
 
         closedLidSideEffectsTimer?.invalidate()
-        let sideEffectsTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
-            Task { @MainActor in
+        let sideEffectsTimer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
                 self?.reconcileClosedLidSideEffects()
             }
         }
         sideEffectsTimer.tolerance = 0.5
+        RunLoop.main.add(sideEffectsTimer, forMode: .common)
         closedLidSideEffectsTimer = sideEffectsTimer
     }
 

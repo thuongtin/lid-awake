@@ -1,3 +1,4 @@
+import AppKit
 @testable import LidAwake
 import LidAwakeCore
 import XCTest
@@ -884,6 +885,31 @@ final class AppModelLifecycleTests: XCTestCase {
 
         XCTAssertEqual(harness.deviceLocker.lockCount, 0)
         XCTAssertEqual(harness.displaySleeper.sleepCount, 0)
+    }
+
+    func testTimersKeepFiringWhileAModalAlertRunsTheRunLoop() {
+        // AppKit adds the modal panel mode to the common modes when the
+        // application object comes up, as it does in the running app.
+        _ = NSApplication.shared
+        let harness = AppModelHarness(
+            settings: UserSettings(enabled: true, lockScreenWhenLidCloses: true),
+            helperStatus: .enabled,
+            closedLidStatus: .enabled
+        )
+        harness.screenLockPermissionChecker.requiresAccessibilityPermission = true
+        harness.screenLockPermissionChecker.hasPermission = true
+
+        harness.model.start(scheduleTimers: true)
+        defer { harness.model.stop() }
+        let checksBeforeModal = harness.screenLockPermissionChecker.promptRequests.count
+
+        // `NSAlert.runModal` spins the run loop in this mode.
+        let deadline = Date().addingTimeInterval(1.8)
+        while Date() < deadline {
+            RunLoop.main.run(mode: .modalPanel, before: Date().addingTimeInterval(0.05))
+        }
+
+        XCTAssertGreaterThan(harness.screenLockPermissionChecker.promptRequests.count, checksBeforeModal)
     }
 
     func testSoftwareUpdateServiceStartsAndSyncsState() async {
