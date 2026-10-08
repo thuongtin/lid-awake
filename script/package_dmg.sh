@@ -16,6 +16,33 @@ if [[ ! -d "$APP_BUNDLE" ]]; then
   exit 2
 fi
 
+# A public DMG wraps whatever sits in dist/ at the time, and
+# ./scripts/check.sh restages a debug bundle there, so check that the app is
+# still the signed, notarized release build before packaging it.
+if [[ "$ALLOW_NON_DEVELOPER_ID_RELEASE" != "1" ]]; then
+  if ! codesign --verify --deep --strict "$APP_BUNDLE" 2>/dev/null; then
+    echo "error: $APP_BUNDLE does not pass codesign --verify --deep --strict" >&2
+    exit 2
+  fi
+
+  if ! codesign -dv --verbose=2 "$APP_BUNDLE" 2>&1 | grep -q '^Authority=Developer ID Application:'; then
+    echo "error: $APP_BUNDLE is not signed with a Developer ID Application identity" >&2
+    exit 2
+  fi
+
+  if ! xcrun stapler validate "$APP_BUNDLE" >/dev/null 2>&1; then
+    echo "error: $APP_BUNDLE has no stapled notarization ticket" >&2
+    echo "hint: notarize the release zip, then run xcrun stapler staple dist/LidAwake.app" >&2
+    exit 2
+  fi
+
+  if ! /usr/libexec/PlistBuddy -c 'Print :SUPublicEDKey' "$INFO_PLIST" >/dev/null 2>&1; then
+    echo "error: $APP_BUNDLE is not a release build (no SUPublicEDKey)" >&2
+    echo "hint: restage with CONFIGURATION=release, then sign, notarize, and staple it again" >&2
+    exit 2
+  fi
+fi
+
 if [[ -z "$SIGNING_IDENTITY" ]]; then
   SIGNING_IDENTITY="$(
     security find-identity -v -p codesigning 2>/dev/null \
