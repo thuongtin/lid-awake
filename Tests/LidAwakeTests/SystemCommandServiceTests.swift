@@ -59,12 +59,12 @@ final class SystemCommandServiceTests: XCTestCase {
             ProcessResult(status: 0, output: "", timedOut: false)
         }
 
-        try service.sleepDisplaysNow()
-        try service.sleepDisplaysNow()
+        XCTAssertTrue(try service.sleepDisplaysNow())
+        XCTAssertFalse(try service.sleepDisplaysNow())
         XCTAssertEqual(work.pendingCount, 1)
 
         work.releaseAll()
-        try service.sleepDisplaysNow()
+        XCTAssertTrue(try service.sleepDisplaysNow())
         XCTAssertEqual(work.pendingCount, 1)
     }
 

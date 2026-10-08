@@ -54,11 +54,12 @@ final class PMSetDisplaySleepService: DisplaySleeping {
         self.runCommand = runCommand
     }
 
-    func sleepDisplaysNow() throws {
+    @discardableResult
+    func sleepDisplaysNow() throws -> Bool {
         // A request already out covers this one; stacking more behind a stuck
         // `pmset` would only run them late.
         guard !isRunning else {
-            return
+            return false
         }
 
         isRunning = true
@@ -72,5 +73,6 @@ final class PMSetDisplaySleepService: DisplaySleeping {
                 failureHandler?(error.localizedDescription)
             }
         }
+        return true
     }
 }

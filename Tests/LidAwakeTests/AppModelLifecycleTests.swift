@@ -1748,8 +1748,9 @@ private final class FakeClamshellStateReader: ClamshellStateReading {
 private final class FakeDisplaySleeper: DisplaySleeping {
     private(set) var sleepCount = 0
 
-    func sleepDisplaysNow() throws {
+    func sleepDisplaysNow() throws -> Bool {
         sleepCount += 1
+        return true
     }
 }
 

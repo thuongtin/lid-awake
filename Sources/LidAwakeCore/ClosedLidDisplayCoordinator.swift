@@ -11,7 +11,10 @@ public protocol ClamshellStateReading: AnyObject {
 }
 
 public protocol DisplaySleeping: AnyObject {
-    func sleepDisplaysNow() throws
+    /// Returns false when an earlier request is still running and this one
+    /// was folded into it, so no new command started.
+    @discardableResult
+    func sleepDisplaysNow() throws -> Bool
 }
 
 public enum ScreenLockState: Equatable, Sendable {
@@ -114,7 +117,12 @@ public final class ClosedLidDisplayCoordinator {
         }
 
         do {
-            try displaySleeper.sleepDisplaysNow()
+            // A request folded into one still running is not an attempt, or
+            // one slow command could use up every retry for this closure.
+            guard try displaySleeper.sleepDisplaysNow() else {
+                return .none
+            }
+
             displaySleepRequestCount += 1
             return .requestedDisplaySleep
         } catch {
