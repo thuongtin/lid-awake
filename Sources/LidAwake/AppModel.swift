@@ -12,9 +12,18 @@ protocol BatteryMonitoring: AnyObject {
     func currentState() -> BatteryState
 }
 
+enum LoginItemStatus: Equatable {
+    case enabled
+    /// Registered, but macOS will not start it until the user allows it in
+    /// System Settings > General > Login Items.
+    case requiresApproval
+    case disabled
+}
+
 protocol LoginItemServicing: AnyObject {
-    var isEnabled: Bool { get }
+    var status: LoginItemStatus { get }
     func setEnabled(_ enabled: Bool) throws
+    func openLoginItemsSettings()
 }
 
 protocol ClosedLidStatusReading {
@@ -59,6 +68,7 @@ final class AppModel: ObservableObject {
         feedURL: nil
     )
     @Published private(set) var launchAtLoginError: String?
+    @Published private(set) var launchAtLoginNeedsApproval = false
     @Published private(set) var closedLidStatus: ClosedLidStatus = .notReported
     @Published private(set) var closedLidHelperStatus: ClosedLidHelperStatus = .notRegistered
     /// Why closed-lid control is currently blocked, if it is.
@@ -429,6 +439,7 @@ final class AppModel: ObservableObject {
 
     func refreshAfterExternalPermissionChange() {
         closedLidRetryNotBefore = nil
+        syncLaunchAtLoginStatus()
         syncClosedLidHelperStatus()
         // `evaluate` refreshes the Accessibility state on its way through.
         evaluate(forceClosedLidStatusRead: true)
@@ -616,8 +627,10 @@ final class AppModel: ObservableObject {
         do {
             try loginItemService.setEnabled(enabled)
             launchAtLoginError = nil
+            let status = loginItemService.status
+            launchAtLoginNeedsApproval = status == .requiresApproval
             updateSettings { settings in
-                settings.launchAtLogin = loginItemService.isEnabled
+                settings.launchAtLogin = status != .disabled
             }
         } catch {
             launchAtLoginError = error.localizedDescription
@@ -917,8 +930,20 @@ final class AppModel: ObservableObject {
         ]
     }
 
+    func openLoginItemsSettings() {
+        loginItemService.openLoginItemsSettings()
+    }
+
+    /// A registration waiting for approval still counts as on: the user asked
+    /// for it, and turning the toggle off behind their back would hide that
+    /// one more step in System Settings is all that is missing.
     private func syncLaunchAtLoginStatus() {
-        let enabled = loginItemService.isEnabled
+        let status = loginItemService.status
+        if launchAtLoginNeedsApproval != (status == .requiresApproval) {
+            launchAtLoginNeedsApproval = status == .requiresApproval
+        }
+
+        let enabled = status != .disabled
         guard settings.launchAtLogin != enabled else {
             return
         }

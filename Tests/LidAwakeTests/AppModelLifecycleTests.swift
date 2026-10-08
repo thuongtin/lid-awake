@@ -257,6 +257,63 @@ final class AppModelLifecycleTests: XCTestCase {
         XCTAssertNil(harness.model.closedLidError)
     }
 
+    func testLaunchAtLoginWaitingForApprovalStaysOnAndSaysWhy() async {
+        let harness = AppModelHarness(
+            settings: UserSettings(enabled: false),
+            helperStatus: .notRegistered,
+            closedLidStatus: .disabled
+        )
+        harness.loginItemService.requiresApproval = true
+
+        harness.model.start(scheduleTimers: false)
+        await drainMainQueue()
+        harness.model.updateLaunchAtLogin(true)
+
+        XCTAssertTrue(harness.model.settings.launchAtLogin)
+        XCTAssertTrue(harness.model.launchAtLoginNeedsApproval)
+        XCTAssertNil(harness.model.launchAtLoginError)
+
+        // Coming back from System Settings after allowing it clears the note.
+        harness.loginItemService.status = .enabled
+        harness.model.refreshAfterExternalPermissionChange()
+        await drainMainQueue()
+
+        XCTAssertTrue(harness.model.settings.launchAtLogin)
+        XCTAssertFalse(harness.model.launchAtLoginNeedsApproval)
+    }
+
+    func testLaunchAtLoginWaitingForApprovalIsNotTurnedOffAtLaunch() async {
+        let harness = AppModelHarness(
+            settings: UserSettings(enabled: false, launchAtLogin: true),
+            helperStatus: .notRegistered,
+            closedLidStatus: .disabled
+        )
+        harness.loginItemService.status = .requiresApproval
+
+        harness.model.start(scheduleTimers: false)
+        await drainMainQueue()
+
+        XCTAssertTrue(harness.model.settings.launchAtLogin)
+        XCTAssertTrue(harness.model.launchAtLoginNeedsApproval)
+    }
+
+    func testTurningOffLaunchAtLoginClearsTheApprovalNote() async {
+        let harness = AppModelHarness(
+            settings: UserSettings(enabled: false, launchAtLogin: true),
+            helperStatus: .notRegistered,
+            closedLidStatus: .disabled
+        )
+        harness.loginItemService.status = .requiresApproval
+
+        harness.model.start(scheduleTimers: false)
+        await drainMainQueue()
+        harness.model.updateLaunchAtLogin(false)
+
+        XCTAssertFalse(harness.model.settings.launchAtLogin)
+        XCTAssertFalse(harness.model.launchAtLoginNeedsApproval)
+        XCTAssertEqual(harness.loginItemService.setEnabledRequests, [false])
+    }
+
     func testRemoveHelperUnregistersDirectlyWithoutOwnership() async {
         let harness = AppModelHarness(
             settings: UserSettings(enabled: false),
@@ -1387,12 +1444,23 @@ private final class FakeBatteryMonitor: BatteryMonitoring {
 }
 
 private final class FakeLoginItemService: LoginItemServicing {
-    var isEnabled = false
+    var status: LoginItemStatus = .disabled
+    /// Whether macOS holds a registration back until the user allows it.
+    var requiresApproval = false
     var setEnabledRequests: [Bool] = []
+    private(set) var openLoginItemsSettingsCallCount = 0
 
     func setEnabled(_ enabled: Bool) throws {
-        isEnabled = enabled
         setEnabledRequests.append(enabled)
+        if enabled {
+            status = requiresApproval ? .requiresApproval : .enabled
+        } else {
+            status = .disabled
+        }
+    }
+
+    func openLoginItemsSettings() {
+        openLoginItemsSettingsCallCount += 1
     }
 }
 

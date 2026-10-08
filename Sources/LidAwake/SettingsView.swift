@@ -133,6 +133,18 @@ struct SettingsView: View {
                         systemImage: "exclamationmark.triangle"
                     )
                 }
+
+                if model.launchAtLoginNeedsApproval {
+                    Divider()
+                    InfoLine(
+                        title: "Needs approval",
+                        value: "Allow Lid Awake in System Settings > General > Login Items so it can start when you sign in.",
+                        systemImage: "exclamationmark.triangle"
+                    )
+                    Button("Open Login Items") {
+                        model.openLoginItemsSettings()
+                    }
+                }
             }
         }
     }
