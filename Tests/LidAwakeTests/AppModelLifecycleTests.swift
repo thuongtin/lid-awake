@@ -370,6 +370,34 @@ final class AppModelLifecycleTests: XCTestCase {
         XCTAssertEqual(harness.helper.setClosedLidModeRequests, [true])
     }
 
+    func testRearmThatTimesOutOffersRepairInsteadOfCountingAsArmed() async {
+        let harness = AppModelHarness(
+            settings: UserSettings(enabled: true),
+            helperStatus: .enabled,
+            closedLidStatus: .enabled,
+            ownershipRecord: ownedRecord(),
+            closedLidModeChangeTimeout: 0.05
+        )
+        harness.helper.shouldReplyToSetClosedLidMode = false
+
+        harness.model.start(scheduleTimers: false)
+        await drainMainQueue()
+        XCTAssertTrue(harness.model.isChangingClosedLidMode)
+
+        try? await Task.sleep(nanoseconds: 120_000_000)
+        await drainMainQueue()
+
+        // `pmset` was already on before the request, so reading it back says
+        // nothing about whether the helper is now watching this process.
+        XCTAssertFalse(harness.model.isChangingClosedLidMode)
+        XCTAssertTrue(harness.model.shouldOfferClosedLidHelperRepair)
+        XCTAssertEqual(
+            harness.model.closedLidError,
+            "Lid Awake Helper did not respond. Repair the helper, then try again."
+        )
+        XCTAssertEqual(harness.ownershipStore.record?.ownedByThisApp, true)
+    }
+
     func testEnabledModeTheAppDoesNotOwnIsNotRearmed() async {
         let harness = AppModelHarness(
             settings: UserSettings(enabled: true),

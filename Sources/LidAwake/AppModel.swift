@@ -1350,7 +1350,10 @@ final class AppModel: ObservableObject {
             return
         }
 
-        if status == (enabled ? .enabled : .disabled) {
+        // Reaching the target only shows the helper acted when the mode was
+        // somewhere else before. A re-arm starts from the target already.
+        let target: ClosedLidStatus = enabled ? .enabled : .disabled
+        if status == target, previousStatus != target {
             finishClosedLidModeChange(
                 changeID: changeID,
                 enabled: enabled,
