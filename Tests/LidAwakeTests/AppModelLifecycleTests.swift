@@ -853,6 +853,39 @@ final class AppModelLifecycleTests: XCTestCase {
         XCTAssertNil(harness.model.closedLidDisplayError)
     }
 
+    func testLidClosedWhileDisabledIsNotTreatedAsAFreshCloseOnReenable() async {
+        let harness = AppModelHarness(
+            settings: UserSettings(
+                enabled: true,
+                lidClosedDisplayMode: .turnDisplayOff,
+                lockScreenWhenLidCloses: true
+            ),
+            helperStatus: .enabled,
+            closedLidStatus: .enabled
+        )
+        harness.lockClamshellReader.state = .open
+        harness.displayClamshellReader.state = .open
+
+        harness.model.start(scheduleTimers: false)
+        await drainMainQueue()
+        harness.model.updateSettings { $0.enabled = false }
+        await drainMainQueue()
+
+        // The lid closed while the app was off, so it never saw the change.
+        harness.lockClamshellReader.state = .closed
+        harness.displayClamshellReader.state = .closed
+        harness.model.evaluate()
+        await drainMainQueue()
+
+        harness.model.updateSettings { $0.enabled = true }
+        await drainMainQueue()
+        harness.model.evaluate()
+        await drainMainQueue()
+
+        XCTAssertEqual(harness.deviceLocker.lockCount, 0)
+        XCTAssertEqual(harness.displaySleeper.sleepCount, 0)
+    }
+
     func testSoftwareUpdateServiceStartsAndSyncsState() async {
         let updateState = SoftwareUpdateState(
             isConfigured: true,

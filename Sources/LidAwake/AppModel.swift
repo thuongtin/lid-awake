@@ -1249,6 +1249,8 @@ final class AppModel: ObservableObject {
         // skip their per-tick IOKit clamshell reads entirely rather than polling
         // AppleClamshellState twice every second for the life of the process.
         guard settings.enabled else {
+            closedLidLockCoordinator.forgetLidState()
+            closedLidDisplayCoordinator.forgetLidState()
             return
         }
 

@@ -72,4 +72,11 @@ public final class ClosedLidLockCoordinator {
     public func reset() {
         lockRequestCount = maximumLockRequests
     }
+
+    /// Drops the last clamshell state seen, for a stretch where the caller
+    /// stops calling `update`. A lid that closed in that stretch is then not
+    /// taken for a close the user just made.
+    public func forgetLidState() {
+        lastClamshellState = nil
+    }
 }
