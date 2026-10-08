@@ -178,6 +178,35 @@ final class AppModelLifecycleTests: XCTestCase {
         XCTAssertTrue(harness.model.closedLidError?.contains("Could not restore closed-lid mode") == true)
     }
 
+    func testFailedRemovalWarningSurvivesTheNextEvaluate() async {
+        let harness = AppModelHarness(
+            settings: UserSettings(enabled: true),
+            helperStatus: .enabled,
+            closedLidStatus: .disabled
+        )
+        harness.helper.onSetClosedLidMode = { enabled in
+            harness.closedLidStatusReader.status = enabled ? .enabled : .disabled
+        }
+
+        harness.model.start(scheduleTimers: false)
+        await drainMainQueue()
+
+        harness.helper.onSetClosedLidMode = nil
+        harness.helper.setClosedLidModeResult = .failure(NSError(domain: "Restore", code: 1))
+        harness.model.removeClosedLidHelper()
+        await drainMainQueue()
+
+        // Closed-lid mode is still on and still wanted, which used to read as
+        // the healthy steady state and wipe the warning within five seconds.
+        harness.model.evaluate()
+        await drainMainQueue()
+        harness.model.evaluate(forceClosedLidStatusRead: true)
+        await drainMainQueue()
+
+        XCTAssertTrue(harness.model.closedLidError?.contains("Could not restore closed-lid mode") == true)
+        XCTAssertEqual(harness.helper.unregisterCallCount, 0)
+    }
+
     func testRemoveHelperUnregistersDirectlyWithoutOwnership() async {
         let harness = AppModelHarness(
             settings: UserSettings(enabled: false),

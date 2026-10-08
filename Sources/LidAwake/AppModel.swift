@@ -1010,6 +1010,18 @@ final class AppModel: ObservableObject {
         self.closedLidError = nil
     }
 
+    /// Closed-lid mode being on and wanted is the healthy steady state, except
+    /// after a removal that could not finish: there it is the very thing the
+    /// warning is about, and clearing it would hide that the helper is still
+    /// installed.
+    private func clearClosedLidErrorUnlessRemovalPending() {
+        guard !closedLidHelperRemovalRequested else {
+            return
+        }
+
+        closedLidError = nil
+    }
+
     private func isClosedLidReadinessError(_ message: String) -> Bool {
         message.contains("Approve Lid Awake Helper")
             || message.contains("Set up Advanced Helper")
@@ -1043,7 +1055,7 @@ final class AppModel: ObservableObject {
         if desired, !forceStatusRead, closedLidStatus == .enabled,
            let lastVerified = lastClosedLidVerifiedAt,
            Date().timeIntervalSince(lastVerified) < closedLidVerifyInterval {
-            closedLidError = nil
+            clearClosedLidErrorUnlessRemovalPending()
             return
         }
 
@@ -1071,7 +1083,7 @@ final class AppModel: ObservableObject {
 
         if shouldEnableClosedLidMode {
             guard status != .enabled else {
-                closedLidError = nil
+                clearClosedLidErrorUnlessRemovalPending()
                 return
             }
 
