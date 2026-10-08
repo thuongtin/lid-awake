@@ -67,6 +67,66 @@ final class ClosedLidRestoreWatchdogTests: XCTestCase {
         XCTAssertEqual(harness.restoreCount, 1)
     }
 
+    func testRetriesARestoreThatFailedAfterTheClientExited() {
+        let harness = WatchdogHarness()
+        harness.restoreResults = [false, false, true]
+
+        harness.watchdog.closedLidModeChangeAttempted(enabled: true, succeeded: true, clientProcessID: 42)
+        harness.watcher.exit(42)
+
+        XCTAssertEqual(harness.restoreCount, 1)
+        XCTAssertEqual(harness.scheduler.delays, [2])
+
+        harness.scheduler.runNext()
+        XCTAssertEqual(harness.restoreCount, 2)
+        XCTAssertEqual(harness.scheduler.delays, [2, 10])
+
+        harness.scheduler.runNext()
+        XCTAssertEqual(harness.restoreCount, 3)
+        XCTAssertTrue(harness.scheduler.pending.isEmpty)
+    }
+
+    func testKeepsRetryingAtTheLongestDelay() {
+        let harness = WatchdogHarness()
+        harness.restoreResults = []
+
+        harness.watchdog.closedLidModeChangeAttempted(enabled: true, succeeded: true, clientProcessID: 42)
+        harness.watcher.exit(42)
+        for _ in 0..<7 {
+            harness.scheduler.runNext()
+        }
+
+        XCTAssertEqual(harness.restoreCount, 8)
+        XCTAssertEqual(harness.scheduler.delays, [2, 10, 30, 120, 600, 600, 600, 600])
+    }
+
+    func testANewEnableStopsPendingRetries() {
+        let harness = WatchdogHarness()
+        harness.restoreResults = []
+
+        harness.watchdog.closedLidModeChangeAttempted(enabled: true, succeeded: true, clientProcessID: 42)
+        harness.watcher.exit(42)
+        // A relaunched app owns the mode again and restores it itself.
+        harness.watchdog.closedLidModeChangeAttempted(enabled: true, succeeded: true, clientProcessID: 43)
+        harness.scheduler.runNext()
+
+        XCTAssertEqual(harness.restoreCount, 1)
+        XCTAssertTrue(harness.scheduler.pending.isEmpty)
+    }
+
+    func testASuccessfulDisableStopsPendingRetries() {
+        let harness = WatchdogHarness()
+        harness.restoreResults = []
+
+        harness.watchdog.closedLidModeChangeAttempted(enabled: true, succeeded: true, clientProcessID: 42)
+        harness.watcher.exit(42)
+        harness.watchdog.closedLidModeChangeAttempted(enabled: false, succeeded: true, clientProcessID: 43)
+        harness.scheduler.runNext()
+
+        XCTAssertEqual(harness.restoreCount, 1)
+        XCTAssertTrue(harness.scheduler.pending.isEmpty)
+    }
+
     func testIgnoresADisableFromAClientThatNeverEnabled() {
         let harness = WatchdogHarness()
 
@@ -115,15 +175,45 @@ final class ClosedLidRestoreWatchdogTests: XCTestCase {
 
 private final class WatchdogHarness {
     let watcher = FakeProcessExitWatcher()
+    let scheduler = FakeRetryScheduler()
     private(set) var restoreCount = 0
+    /// Results handed out in order; once empty every restore fails. `nil`
+    /// means every restore succeeds.
+    var restoreResults: [Bool]?
     lazy var watchdog = ClosedLidRestoreWatchdog(
         restore: { [unowned self] in
             restoreCount += 1
+            guard restoreResults != nil else {
+                return true
+            }
+
+            return restoreResults!.isEmpty ? false : restoreResults!.removeFirst()
         },
         watchProcessExit: { [watcher] processID, handler in
             watcher.watch(processID, handler: handler)
+        },
+        scheduleRetry: { [scheduler] delay, work in
+            scheduler.schedule(after: delay, work)
         }
     )
+}
+
+private final class FakeRetryScheduler {
+    private(set) var delays: [TimeInterval] = []
+    private(set) var pending: [() -> Void] = []
+
+    func schedule(after delay: TimeInterval, _ work: @escaping () -> Void) {
+        delays.append(delay)
+        pending.append(work)
+    }
+
+    func runNext() {
+        guard !pending.isEmpty else {
+            return
+        }
+
+        pending.removeFirst()()
+    }
 }
 
 private final class FakeProcessExitWatcher {

@@ -23,12 +23,17 @@ final class HelperService: NSObject, NSXPCListenerDelegate, LidAwakeHelperXPCPro
             do {
                 try pmsetService.setClosedLidMode(enabled: false)
                 logger.notice("Restored closed-lid mode after the client exited without restoring it")
+                return true
             } catch {
-                logger.error("Could not restore closed-lid mode after the client exited: \(error.localizedDescription, privacy: .public)")
+                logger.error("Could not restore closed-lid mode after the client exited, will retry: \(error.localizedDescription, privacy: .public)")
+                return false
             }
         },
         watchProcessExit: { [commandQueue] processID, handler in
             DispatchProcessExitWatch(processID: processID, queue: commandQueue, handler: handler)
+        },
+        scheduleRetry: { [commandQueue] delay, work in
+            commandQueue.asyncAfter(deadline: .now() + delay, execute: work)
         }
     )
 

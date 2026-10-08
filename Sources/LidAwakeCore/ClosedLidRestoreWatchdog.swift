@@ -12,10 +12,18 @@ public protocol ProcessExitWatching: AnyObject {
 /// helper outlives the app, so it watches the client that last enabled the
 /// mode and restores when that process exits without restoring first.
 ///
-/// Not thread-safe: make every call, and deliver every exit, on one serial
-/// queue.
+/// A restore that fails once the client is gone is retried with a growing
+/// delay until it succeeds, since nothing else is left to restore it. A new
+/// enable or a successful disable takes over and stops the retries.
+///
+/// Not thread-safe: make every call, deliver every exit, and run every
+/// scheduled retry on one serial queue.
 public final class ClosedLidRestoreWatchdog {
     public typealias WatchProcessExit = (Int32, @escaping () -> Void) -> ProcessExitWatching
+    public typealias ScheduleRetry = (TimeInterval, @escaping () -> Void) -> Void
+
+    /// Delays between restore attempts; the last one repeats.
+    public static let restoreRetryDelays: [TimeInterval] = [2, 10, 30, 120, 600]
 
     private struct ArmedWatch {
         let processID: Int32
@@ -23,13 +31,23 @@ public final class ClosedLidRestoreWatchdog {
         let token: UUID
     }
 
-    private let restore: () -> Void
+    private let restore: () -> Bool
     private let watchProcessExit: WatchProcessExit
+    private let scheduleRetry: ScheduleRetry
     private var armed: ArmedWatch?
+    /// Identifies the restore still being retried, if any.
+    private var pendingRestore: UUID?
 
-    public init(restore: @escaping () -> Void, watchProcessExit: @escaping WatchProcessExit) {
+    /// - Parameter restore: Turns closed-lid mode off and reports whether it
+    ///   worked.
+    public init(
+        restore: @escaping () -> Bool,
+        watchProcessExit: @escaping WatchProcessExit,
+        scheduleRetry: @escaping ScheduleRetry
+    ) {
         self.restore = restore
         self.watchProcessExit = watchProcessExit
+        self.scheduleRetry = scheduleRetry
     }
 
     /// Records a `setClosedLidMode` request the helper just ran.
@@ -41,9 +59,12 @@ public final class ClosedLidRestoreWatchdog {
         guard enabled else {
             if succeeded {
                 disarm()
+                pendingRestore = nil
             }
             return
         }
+
+        pendingRestore = nil
 
         guard armed?.processID != clientProcessID else {
             return
@@ -63,7 +84,26 @@ public final class ClosedLidRestoreWatchdog {
         }
 
         disarm()
-        restore()
+        let restoreID = UUID()
+        pendingRestore = restoreID
+        attemptRestore(restoreID: restoreID, attempt: 0)
+    }
+
+    private func attemptRestore(restoreID: UUID, attempt: Int) {
+        guard pendingRestore == restoreID else {
+            return
+        }
+
+        if restore() {
+            pendingRestore = nil
+            return
+        }
+
+        let delays = Self.restoreRetryDelays
+        let delay = delays[min(attempt, delays.count - 1)]
+        scheduleRetry(delay) { [weak self] in
+            self?.attemptRestore(restoreID: restoreID, attempt: attempt + 1)
+        }
     }
 
     private func disarm() {
