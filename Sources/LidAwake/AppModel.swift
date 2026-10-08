@@ -584,6 +584,12 @@ final class AppModel: ObservableObject {
     func updateSettings(_ update: (inout UserSettings) -> Void) {
         var nextSettings = settings
         update(&nextSettings)
+        // A scheduled stop belongs to the run it was set for. Kept across an
+        // off and on, a deadline that passed in between would turn the app
+        // straight back off.
+        if !nextSettings.enabled {
+            nextSettings.stopAt = nil
+        }
         settings = nextSettings
         settingsStore.save(nextSettings)
         evaluate()
@@ -814,8 +820,10 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// Keeps the Mac awake for `interval`, turning Keep Awake on if it was off.
     func scheduleStop(for interval: TimeInterval) {
         updateSettings { settings in
+            settings.enabled = true
             settings.stopAt = clock.now.addingTimeInterval(interval)
         }
     }

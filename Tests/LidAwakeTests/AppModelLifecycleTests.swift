@@ -912,6 +912,44 @@ final class AppModelLifecycleTests: XCTestCase {
         XCTAssertGreaterThan(harness.screenLockPermissionChecker.promptRequests.count, checksBeforeModal)
     }
 
+    func testTurningOffClearsTheScheduledStopSoReenablingSticks() async {
+        let harness = AppModelHarness(
+            settings: UserSettings(enabled: true),
+            helperStatus: .enabled,
+            closedLidStatus: .disabled
+        )
+        harness.model.start(scheduleTimers: false)
+        await drainMainQueue()
+
+        harness.model.scheduleStop(for: 3600)
+        harness.model.updateSettings { $0.enabled = false }
+        XCTAssertNil(harness.model.settings.stopAt)
+
+        // Back on after the old deadline would have passed.
+        harness.clock.now = harness.clock.now.addingTimeInterval(7200)
+        harness.model.updateSettings { $0.enabled = true }
+        await drainMainQueue()
+
+        XCTAssertTrue(harness.model.settings.enabled)
+        XCTAssertTrue(harness.settingsStore.savedSettings.last?.enabled == true)
+        XCTAssertNil(harness.settingsStore.savedSettings.last?.stopAt)
+    }
+
+    func testSchedulingAStopWhileOffTurnsKeepAwakeOn() async {
+        let harness = AppModelHarness(
+            settings: UserSettings(enabled: false),
+            helperStatus: .enabled,
+            closedLidStatus: .disabled
+        )
+        harness.model.start(scheduleTimers: false)
+        await drainMainQueue()
+
+        harness.model.scheduleStop(for: 1800)
+
+        XCTAssertTrue(harness.model.settings.enabled)
+        XCTAssertEqual(harness.model.settings.stopAt, harness.clock.now.addingTimeInterval(1800))
+    }
+
     func testSoftwareUpdateServiceStartsAndSyncsState() async {
         let updateState = SoftwareUpdateState(
             isConfigured: true,
