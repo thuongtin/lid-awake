@@ -6,7 +6,6 @@ import Foundation
 enum ScreenLockError: LocalizedError, Equatable {
     case unavailable
     case accessibilityPermissionRequired
-    case launchFailed(String)
     case commandFailed(Int32, String)
 
     static let accessibilityPermissionMessage =
@@ -18,8 +17,6 @@ enum ScreenLockError: LocalizedError, Equatable {
             "No supported macOS screen lock command is available."
         case .accessibilityPermissionRequired:
             Self.accessibilityPermissionMessage
-        case let .launchFailed(message):
-            message
         case let .commandFailed(status, output):
             output.isEmpty ? "screen lock failed with exit code \(status)." : output
         }
@@ -126,6 +123,10 @@ struct SystemScreenLockPermissionChecker: ScreenLockPermissionChecking {
 }
 
 final class SystemScreenLockService: DeviceLocking {
+    /// Runs from the main actor's side-effects timer, so a hung lock command
+    /// must not be able to hold it.
+    static let commandTimeout: TimeInterval = 2
+
     private let shortcutPoster: ScreenLockShortcutPosting
 
     init(shortcutPoster: ScreenLockShortcutPosting = CGEventScreenLockShortcutPoster()) {
@@ -142,31 +143,13 @@ final class SystemScreenLockService: DeviceLocking {
     }
 
     private func run(_ command: ScreenLockCommand) throws {
-        let process = Process()
-        let stdout = Pipe()
-        let stderr = Pipe()
-
-        process.executableURL = URL(fileURLWithPath: command.executablePath)
-        process.arguments = command.arguments
-        process.standardOutput = stdout
-        process.standardError = stderr
-
-        do {
-            try process.run()
-            process.waitUntilExit()
-        } catch {
-            throw ScreenLockError.launchFailed(error.localizedDescription)
+        let result = ProcessRunner.run(
+            command.executablePath,
+            arguments: command.arguments,
+            timeout: Self.commandTimeout
+        )
+        guard !result.timedOut, result.status == 0 else {
+            throw ScreenLockError.commandFailed(result.status, result.output)
         }
-
-        let output = read(stdout) + read(stderr)
-        let trimmedOutput = output.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard process.terminationStatus == 0 else {
-            throw ScreenLockError.commandFailed(process.terminationStatus, trimmedOutput)
-        }
-    }
-
-    private func read(_ pipe: Pipe) -> String {
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        return String(data: data, encoding: .utf8) ?? ""
     }
 }
