@@ -88,13 +88,21 @@ struct StopAfterControl: View {
 
     /// The minutes typed so far, clamped to what the control allows, or nil
     /// while the text holds no number yet.
+    ///
+    /// Digits are read one character at a time so that any script's digits
+    /// count, which `Int(_:)` would reject. The running value stops growing
+    /// past the limit, so a long run of digits cannot overflow.
     static func minutes(fromTyped text: String) -> Int? {
-        let digits = text.filter(\.isWholeNumber)
-        guard !digits.isEmpty else {
-            return nil
+        var value: Int?
+        for character in text {
+            guard let digit = character.wholeNumberValue, (0...9).contains(digit) else {
+                continue
+            }
+            value = min((value ?? 0) * 10 + digit, 721)
         }
-        guard let value = Int(digits) else {
-            return 720
+
+        guard let value else {
+            return nil
         }
         return min(max(value, 1), 720)
     }
