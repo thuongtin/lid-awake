@@ -5,6 +5,11 @@ struct StopAfterControl: View {
     let compact: Bool
     let action: (Int) -> Void
 
+    /// What the field shows. A number field only hands its value over on
+    /// Return or focus loss, so pressing Stop right after typing used the old
+    /// number. Reading the text as it is typed avoids that.
+    @State private var text = ""
+
     var body: some View {
         HStack(spacing: compact ? 10 : 12) {
             Label("Custom time", systemImage: "slider.horizontal.2.square")
@@ -18,7 +23,7 @@ struct StopAfterControl: View {
                     minutes = max(clampedMinutes - 5, 1)
                 }
 
-                TextField("min", value: sanitizedMinutes, format: .number)
+                TextField("min", text: $text)
                     .textFieldStyle(.plain)
                     .font(.system(size: compact ? 15 : 16, weight: .semibold, design: .rounded))
                     .multilineTextAlignment(.center)
@@ -27,6 +32,22 @@ struct StopAfterControl: View {
                     .overlay {
                         RoundedRectangle(cornerRadius: 8, style: .continuous)
                             .stroke(.primary.opacity(0.08), lineWidth: 1)
+                    }
+                    .onAppear {
+                        text = String(clampedMinutes)
+                    }
+                    .onChange(of: minutes) { _, _ in
+                        if Self.minutes(fromTyped: text) != clampedMinutes {
+                            text = String(clampedMinutes)
+                        }
+                    }
+                    .onChange(of: text) { _, newText in
+                        if let typed = Self.minutes(fromTyped: newText) {
+                            minutes = typed
+                        }
+                    }
+                    .onSubmit {
+                        text = String(clampedMinutes)
                     }
 
                 StepButton(systemImage: "plus", size: controlHeight) {
@@ -41,7 +62,10 @@ struct StopAfterControl: View {
                 .frame(width: compact ? 25 : 31, alignment: .leading)
 
             Button {
-                action(clampedMinutes)
+                let chosen = Self.minutes(fromTyped: text) ?? clampedMinutes
+                minutes = chosen
+                text = String(chosen)
+                action(chosen)
             } label: {
                 if compact {
                     Label("Stop", systemImage: "stop.fill")
@@ -62,13 +86,17 @@ struct StopAfterControl: View {
         }
     }
 
-    private var sanitizedMinutes: Binding<Int> {
-        Binding(
-            get: { clampedMinutes },
-            set: { value in
-                minutes = min(max(value, 1), 720)
-            }
-        )
+    /// The minutes typed so far, clamped to what the control allows, or nil
+    /// while the text holds no number yet.
+    static func minutes(fromTyped text: String) -> Int? {
+        let digits = text.filter(\.isWholeNumber)
+        guard !digits.isEmpty else {
+            return nil
+        }
+        guard let value = Int(digits) else {
+            return 720
+        }
+        return min(max(value, 1), 720)
     }
 
     private var clampedMinutes: Int {
