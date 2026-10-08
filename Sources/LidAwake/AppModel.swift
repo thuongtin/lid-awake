@@ -32,6 +32,11 @@ protocol ClosedLidHelperServicing: AnyObject {
 }
 
 @MainActor
+/// Whether a display other than the built-in one is driving the desktop.
+protocol ExternalDisplayDetecting: AnyObject {
+    var hasActiveExternalDisplay: Bool { get }
+}
+
 protocol NotificationServicing: AnyObject {
     func handleTransition(from oldStatus: WakeStatus, to newStatus: WakeStatus)
 }
@@ -106,6 +111,7 @@ final class AppModel: ObservableObject {
     private let closedLidDisplayCoordinator: ClosedLidDisplayCoordinator
     private let closedLidLockCoordinator: ClosedLidLockCoordinator
     private let notificationService: NotificationServicing
+    private let externalDisplayDetector: ExternalDisplayDetecting
     private var previousStatus: WakeStatus = .inactive
     private var timer: Timer?
     private var closedLidSideEffectsTimer: Timer?
@@ -166,6 +172,7 @@ final class AppModel: ObservableObject {
                 screenLockStateReader: CGSessionScreenLockStateReader()
             ),
             notificationService: SystemNotificationService(),
+            externalDisplayDetector: CGExternalDisplayDetector(),
             initialBattery: BatteryState.desktopOrUnknown(
                 lowPowerMode: ProcessInfo.processInfo.isLowPowerModeEnabled
             )
@@ -192,6 +199,7 @@ final class AppModel: ObservableObject {
         closedLidDisplayCoordinator: ClosedLidDisplayCoordinator,
         closedLidLockCoordinator: ClosedLidLockCoordinator,
         notificationService: NotificationServicing,
+        externalDisplayDetector: ExternalDisplayDetecting,
         initialBattery: BatteryState,
         closedLidModeChangeTimeout: TimeInterval = 6,
         blockingWork: BlockingWorkPerforming = BackgroundBlockingWork(),
@@ -216,6 +224,7 @@ final class AppModel: ObservableObject {
         )
         self.closedLidDisplayCoordinator = closedLidDisplayCoordinator
         self.closedLidLockCoordinator = closedLidLockCoordinator
+        self.externalDisplayDetector = externalDisplayDetector
         self.notificationService = notificationService
         self.settings = settingsStore.load()
         self.battery = initialBattery
@@ -1264,7 +1273,11 @@ final class AppModel: ObservableObject {
         // When disabled, neither the lock nor the display coordinator can act, so
         // skip their per-tick IOKit clamshell reads entirely rather than polling
         // AppleClamshellState twice every second for the life of the process.
-        guard settings.enabled else {
+        // A lid closed on an external display is clamshell use: the user is
+        // still at the Mac, so locking it or sleeping every display would cut
+        // them off. Forgetting the lid state there also keeps an unplug later
+        // from looking like a fresh close.
+        guard settings.enabled, !externalDisplayDetector.hasActiveExternalDisplay else {
             closedLidLockCoordinator.forgetLidState()
             closedLidDisplayCoordinator.forgetLidState()
             return

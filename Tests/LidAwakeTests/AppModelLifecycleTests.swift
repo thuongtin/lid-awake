@@ -950,6 +950,59 @@ final class AppModelLifecycleTests: XCTestCase {
         XCTAssertEqual(harness.model.settings.stopAt, harness.clock.now.addingTimeInterval(1800))
     }
 
+    func testClosingTheLidOnAnExternalDisplayNeitherLocksNorSleepsDisplays() async {
+        let harness = AppModelHarness(
+            settings: UserSettings(
+                enabled: true,
+                lidClosedDisplayMode: .turnDisplayOff,
+                lockScreenWhenLidCloses: true
+            ),
+            helperStatus: .enabled,
+            closedLidStatus: .enabled
+        )
+        harness.externalDisplayDetector.hasActiveExternalDisplay = true
+        harness.lockClamshellReader.state = .open
+        harness.displayClamshellReader.state = .open
+        harness.displayScreenLockStateReader.state = .locked
+
+        harness.model.start(scheduleTimers: false)
+        await drainMainQueue()
+        harness.lockClamshellReader.state = .closed
+        harness.displayClamshellReader.state = .closed
+        harness.model.evaluate()
+        await drainMainQueue()
+        harness.model.evaluate()
+        await drainMainQueue()
+
+        XCTAssertEqual(harness.deviceLocker.lockCount, 0)
+        XCTAssertEqual(harness.displaySleeper.sleepCount, 0)
+
+        // Unplugging it later does not count as a fresh close either.
+        harness.externalDisplayDetector.hasActiveExternalDisplay = false
+        harness.model.evaluate()
+        await drainMainQueue()
+
+        XCTAssertEqual(harness.deviceLocker.lockCount, 0)
+        XCTAssertEqual(harness.displaySleeper.sleepCount, 0)
+    }
+
+    func testClosingTheLidWithoutAnExternalDisplayStillLocks() async {
+        let harness = AppModelHarness(
+            settings: UserSettings(enabled: true, lockScreenWhenLidCloses: true),
+            helperStatus: .enabled,
+            closedLidStatus: .enabled
+        )
+        harness.lockClamshellReader.state = .open
+
+        harness.model.start(scheduleTimers: false)
+        await drainMainQueue()
+        harness.lockClamshellReader.state = .closed
+        harness.model.evaluate()
+        await drainMainQueue()
+
+        XCTAssertEqual(harness.deviceLocker.lockCount, 1)
+    }
+
     func testSoftwareUpdateServiceStartsAndSyncsState() async {
         let updateState = SoftwareUpdateState(
             isConfigured: true,
@@ -1138,6 +1191,7 @@ private final class AppModelHarness {
     let screenLockPermissionChecker = FakeScreenLockPermissionChecker()
     let powerController = FakePowerController()
     let notificationService: FakeNotificationService
+    let externalDisplayDetector: FakeExternalDisplayDetector
     let clock: FakeClock
     let displayClamshellReader = FakeClamshellStateReader()
     let lockClamshellReader = FakeClamshellStateReader()
@@ -1167,6 +1221,7 @@ private final class AppModelHarness {
         self.helper = FakeClosedLidHelperService(status: helperStatus)
         self.softwareUpdateService = FakeSoftwareUpdateService(state: softwareUpdateState)
         self.notificationService = FakeNotificationService()
+        self.externalDisplayDetector = FakeExternalDisplayDetector()
         self.clock = clock
         self.model = AppModel(
             settingsStore: settingsStore,
@@ -1189,12 +1244,17 @@ private final class AppModelHarness {
                 deviceLocker: deviceLocker
             ),
             notificationService: notificationService,
+            externalDisplayDetector: externalDisplayDetector,
             initialBattery: batteryMonitor.currentState(),
             closedLidModeChangeTimeout: closedLidModeChangeTimeout,
             blockingWork: blockingWork,
             terminationRestoreTimeout: terminationRestoreTimeout
         )
     }
+}
+
+private final class FakeExternalDisplayDetector: ExternalDisplayDetecting {
+    var hasActiveExternalDisplay = false
 }
 
 private final class FakeSettingsStore: UserSettingsStoring {
