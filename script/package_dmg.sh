@@ -39,9 +39,17 @@ if [[ "$ALLOW_NON_DEVELOPER_ID_RELEASE" != "1" ]]; then
     exit 2
   fi
 
-  if ! /usr/libexec/PlistBuddy -c 'Print :SUPublicEDKey' "$INFO_PLIST" >/dev/null 2>&1; then
-    echo "error: $APP_BUNDLE is not a release build (no SUPublicEDKey)" >&2
+  # Staging records its configuration, since Sparkle keys alone do not tell
+  # a release build from a debug one staged with SPARKLE_ENABLED=1.
+  build_configuration="$(/usr/libexec/PlistBuddy -c 'Print :LidAwakeBuildConfiguration' "$INFO_PLIST" 2>/dev/null || true)"
+  if [[ "$build_configuration" != "release" ]]; then
+    echo "error: $APP_BUNDLE is not a release build (configuration: ${build_configuration:-unknown})" >&2
     echo "hint: restage with CONFIGURATION=release, then sign, notarize, and staple it again" >&2
+    exit 2
+  fi
+
+  if ! /usr/libexec/PlistBuddy -c 'Print :SUPublicEDKey' "$INFO_PLIST" >/dev/null 2>&1; then
+    echo "error: $APP_BUNDLE has no SUPublicEDKey, so it cannot verify updates" >&2
     exit 2
   fi
 fi

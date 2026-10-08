@@ -18,7 +18,7 @@ After the app bundle is notarized and stapled, create the user-facing DMG:
 ./script/package_dmg.sh
 ```
 
-The DMG is written to `dist/releases/LidAwake-<version>-macos.dmg` with a matching `.sha256` file. Public DMG packaging also requires a `Developer ID Application` signing identity by default. Before packaging, it refuses an app bundle that fails `codesign --verify --deep --strict`, is not signed with a Developer ID Application identity, has no stapled notarization ticket, or is not a release build. `./scripts/check.sh` restages a debug bundle in `dist/`, so run it before staging the release, never between stapling and `package_dmg.sh`.
+The DMG is written to `dist/releases/LidAwake-<version>-macos.dmg` with a matching `.sha256` file. Public DMG packaging also requires a `Developer ID Application` signing identity by default. Before packaging, it refuses an app bundle that fails `codesign --verify --deep --strict`, is not signed with a Developer ID Application identity, has no stapled notarization ticket, or is not a release build (staging records `LidAwakeBuildConfiguration` in `Info.plist`; a debug bundle staged with `SPARKLE_ENABLED=1` is still refused). `./scripts/check.sh` restages a debug bundle in `dist/`, so run it before staging the release, never between stapling and `package_dmg.sh`.
 
 By default, `package_release.sh` requires a `Developer ID Application` signing identity and fails before packaging if it cannot find one. This prevents accidentally uploading Apple Development or ad-hoc signed archives as public downloads.
 

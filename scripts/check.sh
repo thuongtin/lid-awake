@@ -11,3 +11,8 @@ if [[ "$(plutil -extract LSUIElement raw dist/LidAwake.app/Contents/Info.plist)"
   echo "error: staged Info.plist does not set LSUIElement" >&2
   exit 1
 fi
+# package_dmg.sh reads this to refuse a debug bundle.
+if [[ "$(plutil -extract LidAwakeBuildConfiguration raw dist/LidAwake.app/Contents/Info.plist)" != "debug" ]]; then
+  echo "error: staged Info.plist does not record the debug build configuration" >&2
+  exit 1
+fi
