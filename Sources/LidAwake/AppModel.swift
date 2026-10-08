@@ -117,6 +117,8 @@ final class AppModel: ObservableObject {
     private var closedLidSideEffectsTimer: Timer?
     private var closedLidOwnershipRecord: ClosedLidOwnershipRecord?
     private var suppressedClosedLidTarget: Bool?
+    /// Earliest time a failed closed-lid change is retried on its own.
+    private var closedLidRetryNotBefore: Date?
     /// The `setClosedLidMode` request whose reply is still wanted.
     private struct ClosedLidModeChange {
         let id: UUID
@@ -417,12 +419,16 @@ final class AppModel: ObservableObject {
             && closedLidError != nil
     }
 
+    static let closedLidFailureRetryDelay: TimeInterval = 60
+
     func refreshClosedLidPermissionState() {
+        closedLidRetryNotBefore = nil
         syncClosedLidHelperStatus()
         reconcileClosedLidMode(forceStatusRead: true)
     }
 
     func refreshAfterExternalPermissionChange() {
+        closedLidRetryNotBefore = nil
         syncClosedLidHelperStatus()
         // `evaluate` refreshes the Accessibility state on its way through.
         evaluate(forceClosedLidStatusRead: true)
@@ -652,6 +658,7 @@ final class AppModel: ObservableObject {
         }
 
         closedLidHelperRemovalRequested = false
+        closedLidRetryNotBefore = nil
         do {
             try closedLidHelperService.register()
             syncClosedLidHelperStatus()
@@ -679,6 +686,7 @@ final class AppModel: ObservableObject {
         isChangingClosedLidMode = false
         pendingClosedLidModeChange = nil
         closedLidHelperRemovalRequested = false
+        closedLidRetryNotBefore = nil
 
         do {
             try closedLidHelperService.repairRegistration()
@@ -1001,6 +1009,17 @@ final class AppModel: ObservableObject {
             return
         }
 
+        // A change the helper ran and `pmset` refused would fail the same way
+        // on the next evaluate, so it waits out a delay instead of spawning
+        // the helper call every five seconds.
+        if let retryNotBefore = closedLidRetryNotBefore {
+            guard clock.now >= retryNotBefore else {
+                return
+            }
+
+            closedLidRetryNotBefore = nil
+        }
+
         suppressedClosedLidTarget = nil
 
         guard let closedLidError, isClosedLidReadinessError(closedLidError) else {
@@ -1216,12 +1235,18 @@ final class AppModel: ObservableObject {
             )
             saveClosedLidOwnershipRecord(nextRecord)
             suppressedClosedLidTarget = nil
+            closedLidRetryNotBefore = nil
             closedLidError = nil
             closedLidHelperNeedsRepair = false
         case let .failure(error):
             suppressedClosedLidTarget = enabled
             closedLidError = closedLidUserFacingError(from: error)
             closedLidHelperNeedsRepair = isRepairableClosedLidFailure(error)
+            // A helper that cannot be reached waits for repair or a probe
+            // instead; this delay is for one that answered and failed.
+            closedLidRetryNotBefore = closedLidHelperNeedsRepair
+                ? nil
+                : clock.now.addingTimeInterval(Self.closedLidFailureRetryDelay)
         }
 
         reconcileClosedLidSideEffects()

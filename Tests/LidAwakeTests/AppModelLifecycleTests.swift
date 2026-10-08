@@ -207,6 +207,56 @@ final class AppModelLifecycleTests: XCTestCase {
         XCTAssertEqual(harness.helper.unregisterCallCount, 0)
     }
 
+    func testAFailedEnableIsNotRetriedOnEveryEvaluate() async {
+        let harness = AppModelHarness(
+            settings: UserSettings(enabled: true),
+            helperStatus: .enabled,
+            closedLidStatus: .disabled
+        )
+        harness.helper.setClosedLidModeResult = .failure(NSError(domain: "pmset", code: 1))
+
+        harness.model.start(scheduleTimers: false)
+        await drainMainQueue()
+        XCTAssertEqual(harness.helper.setClosedLidModeRequests, [true])
+
+        for _ in 0..<3 {
+            harness.clock.advance(seconds: 5)
+            harness.model.evaluate()
+            await drainMainQueue()
+        }
+
+        XCTAssertEqual(harness.helper.setClosedLidModeRequests, [true])
+        XCTAssertNotNil(harness.model.closedLidError)
+
+        harness.clock.advance(seconds: AppModel.closedLidFailureRetryDelay)
+        harness.model.evaluate()
+        await drainMainQueue()
+
+        XCTAssertEqual(harness.helper.setClosedLidModeRequests, [true, true])
+    }
+
+    func testRefreshRetriesAFailedEnableAtOnce() async {
+        let harness = AppModelHarness(
+            settings: UserSettings(enabled: true),
+            helperStatus: .enabled,
+            closedLidStatus: .disabled
+        )
+        harness.helper.setClosedLidModeResult = .failure(NSError(domain: "pmset", code: 1))
+
+        harness.model.start(scheduleTimers: false)
+        await drainMainQueue()
+
+        harness.helper.setClosedLidModeResult = .success(())
+        harness.helper.onSetClosedLidMode = { enabled in
+            harness.closedLidStatusReader.status = enabled ? .enabled : .disabled
+        }
+        harness.model.refreshClosedLidPermissionState()
+        await drainMainQueue()
+
+        XCTAssertEqual(harness.helper.setClosedLidModeRequests, [true, true])
+        XCTAssertNil(harness.model.closedLidError)
+    }
+
     func testRemoveHelperUnregistersDirectlyWithoutOwnership() async {
         let harness = AppModelHarness(
             settings: UserSettings(enabled: false),
