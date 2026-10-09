@@ -86,7 +86,11 @@ public final class ClosedLidRestoreWatchdog {
     /// helper for a mode it already owns, and that mode still needs a watch
     /// when `pmset` rejects the repeat. A read that does not report the
     /// setting counts as on, since only a mode known to be off can do without
-    /// the watch. Only a disable that succeeded disarms it. A disable that did
+    /// the watch. The request does not say whether it is a re-arm, so a first
+    /// enable that `pmset` rejected while the mode is on or unreadable is
+    /// watched too: restoring a setting someone else turned on is the safer
+    /// mistake than leaving an owned one on with nothing watching it. Only a
+    /// disable that succeeded disarms it. A disable that did
     /// not succeed while nothing is watched or retried watches its client
     /// instead, since the mode may still be on: a command-line repair restores
     /// through a new helper that has no watch yet and then exits.
