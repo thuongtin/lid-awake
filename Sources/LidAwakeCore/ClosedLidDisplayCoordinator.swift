@@ -42,6 +42,11 @@ public final class ClosedLidDisplayCoordinator {
     private var lastClamshellState: ClamshellState?
     private var observedClosedTransition = false
 
+    /// Changes whenever a lid closure the coordinator acts on starts or ends,
+    /// so a display sleep command that fails after its closure ended can be
+    /// told apart from one that failed for the current closure.
+    public private(set) var lidClosureID = 0
+
     public init(
         clamshellStateReader: ClamshellStateReading,
         displaySleeper: DisplaySleeping,
@@ -78,6 +83,9 @@ public final class ClosedLidDisplayCoordinator {
 
         if previousClamshellState == .open {
             observedClosedTransition = settings.lidClosedDisplayMode == .turnDisplayOff
+            if observedClosedTransition {
+                lidClosureID &+= 1
+            }
             displaySleepRequestCount = 0
         } else if previousClamshellState != .closed {
             observedClosedTransition = false
@@ -140,6 +148,9 @@ public final class ClosedLidDisplayCoordinator {
     }
 
     private func resetClosedLidTransition() {
+        if observedClosedTransition {
+            lidClosureID &+= 1
+        }
         displaySleepRequestCount = 0
         observedClosedTransition = false
     }

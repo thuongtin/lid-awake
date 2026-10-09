@@ -1228,6 +1228,34 @@ final class AppModelLifecycleTests: XCTestCase {
         XCTAssertNil(harness.model.closedLidDisplayError)
     }
 
+    func testDisplaySleepFailureFromAnEndedLidClosureIsIgnored() async {
+        let harness = AppModelHarness(
+            settings: UserSettings(enabled: true, lidClosedDisplayMode: .turnDisplayOff),
+            helperStatus: .enabled,
+            closedLidStatus: .enabled
+        )
+        harness.displayClamshellReader.state = .open
+        harness.model.start(scheduleTimers: false)
+        await drainMainQueue()
+        harness.displayClamshellReader.state = .closed
+        harness.model.evaluate()
+        await drainMainQueue()
+        XCTAssertEqual(harness.displaySleeper.sleepCount, 1)
+
+        // The command for this closure is still running as the lid opens.
+        harness.displayClamshellReader.state = .open
+        harness.model.evaluate()
+        await drainMainQueue()
+        harness.model.reportClosedLidDisplayFailure("Display sleep failed.")
+        XCTAssertNil(harness.model.closedLidDisplayError)
+
+        harness.displayClamshellReader.state = .closed
+        harness.model.evaluate()
+        await drainMainQueue()
+        harness.model.reportClosedLidDisplayFailure("Display sleep failed.")
+        XCTAssertEqual(harness.model.closedLidDisplayError, "Display sleep failed.")
+    }
+
     func testLidClosedWhileDisabledIsNotTreatedAsAFreshCloseOnReenable() async {
         let harness = AppModelHarness(
             settings: UserSettings(
