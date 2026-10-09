@@ -12,9 +12,18 @@ protocol BatteryMonitoring: AnyObject {
     func currentState() -> BatteryState
 }
 
+enum LoginItemStatus: Equatable {
+    case enabled
+    /// Registered, but macOS will not start it until the user allows it in
+    /// System Settings > General > Login Items.
+    case requiresApproval
+    case disabled
+}
+
 protocol LoginItemServicing: AnyObject {
-    var isEnabled: Bool { get }
+    var status: LoginItemStatus { get }
     func setEnabled(_ enabled: Bool) throws
+    func openLoginItemsSettings()
 }
 
 protocol ClosedLidStatusReading {
@@ -24,11 +33,16 @@ protocol ClosedLidStatusReading {
 protocol ClosedLidHelperServicing: AnyObject {
     var status: ClosedLidHelperStatus { get }
     func register() throws
-    func repairRegistration() throws
+    func repairRegistration(completion: @escaping (Result<Void, Error>) -> Void)
     func unregister() throws
     func setClosedLidMode(enabled: Bool, reply: @escaping (Result<Void, Error>) -> Void)
     func probeConnection(reply: @escaping (Result<Void, ClosedLidHelperFailure>) -> Void)
     func openApprovalSettings()
+}
+
+/// Whether a display other than the built-in one is driving the desktop.
+protocol ExternalDisplayDetecting: AnyObject {
+    var hasActiveExternalDisplay: Bool { get }
 }
 
 @MainActor
@@ -54,6 +68,7 @@ final class AppModel: ObservableObject {
         feedURL: nil
     )
     @Published private(set) var launchAtLoginError: String?
+    @Published private(set) var launchAtLoginNeedsApproval = false
     @Published private(set) var closedLidStatus: ClosedLidStatus = .notReported
     @Published private(set) var closedLidHelperStatus: ClosedLidHelperStatus = .notRegistered
     /// Why closed-lid control is currently blocked, if it is.
@@ -84,6 +99,8 @@ final class AppModel: ObservableObject {
     @Published private(set) var closedLidHelperNeedsRepair = false
 
     private static let closedLidModeChangeTimeoutMessage = ClosedLidHelperFailure.timedOutMessage
+    static let closedLidHelperBusyMessage = "Wait for the helper update to finish, then remove Lid Awake Helper."
+    static let closedLidHelperUpdateInProgressMessage = "Wait for the helper update to finish, then try again."
 
     private let settingsStore: UserSettingsStoring
     private let closedLidOwnershipStore: ClosedLidOwnershipStoring
@@ -94,6 +111,10 @@ final class AppModel: ObservableObject {
     private let softwareUpdateService: SoftwareUpdateServicing
     private let screenLockPermissionChecker: ScreenLockPermissionChecking
     private let closedLidModeChangeTimeout: TimeInterval
+    private let blockingWork: BlockingWorkPerforming
+    /// How long a quit waits for the restore. It outlasts the helper's XPC
+    /// deadline, so a reply that is coming is not cut off.
+    private let terminationRestoreTimeout: TimeInterval
     private let logger = Logger(subsystem: "com.thuongtin.LidAwake", category: "app")
     private let powerController: PowerAssertionControlling
     private let clock: Clock
@@ -101,18 +122,49 @@ final class AppModel: ObservableObject {
     private let closedLidDisplayCoordinator: ClosedLidDisplayCoordinator
     private let closedLidLockCoordinator: ClosedLidLockCoordinator
     private let notificationService: NotificationServicing
+    private let externalDisplayDetector: ExternalDisplayDetecting
     private var previousStatus: WakeStatus = .inactive
     private var timer: Timer?
     private var closedLidSideEffectsTimer: Timer?
     private var closedLidOwnershipRecord: ClosedLidOwnershipRecord?
     private var suppressedClosedLidTarget: Bool?
-    private var closedLidModeChangeID: UUID?
+    /// Whether the running helper watches this process, which it does only
+    /// after this process sent it an enable. A relaunch or a new helper
+    /// process starts without that.
+    private var closedLidRestoreWatchdogArmed = false
+    /// Earliest time a failed closed-lid change is retried on its own.
+    private var closedLidRetryNotBefore: Date?
+    /// The `setClosedLidMode` request whose reply is still wanted.
+    private struct ClosedLidModeChange {
+        let id: UUID
+        let enabled: Bool
+    }
+    private var pendingClosedLidModeChange: ClosedLidModeChange?
+    /// Set while a requested helper removal has not gone through, so a removal
+    /// that fails after closed-lid mode was restored does not get undone by the
+    /// next evaluate turning it straight back on.
+    private var closedLidHelperRemovalRequested = false
     /// Identifies the probe whose reply is still wanted. Nil means none is in
     /// flight, or the state it was testing has already moved on.
     private var closedLidHelperProbeID: UUID?
     private var lastClosedLidHelperProbeAt: Date?
     private let closedLidHelperProbeInterval: TimeInterval = 30
     private var lastClosedLidVerifiedAt: Date?
+    /// Set while the status read behind `reconcileClosedLidMode` is out, so a
+    /// slow `pmset` does not get another read stacked behind it every tick.
+    private var isReadingClosedLidStatus = false
+    /// Set once the app started quitting, so nothing turns closed-lid mode
+    /// back on after the restore that runs on the way out.
+    private var isTerminating = false
+    /// Set from the start of a repair until its registration settles.
+    private var isRepairingClosedLidHelper = false
+    /// A quit that arrived during a repair, waiting to restore once it settles.
+    private var terminationRestoreAfterRepair: (@MainActor () -> Void)?
+    private var didPromptForScreenLockAccessibility = false
+    /// The lid closure the last display sleep command was started for.
+    private var displaySleepRequestLidClosureID: Int?
+    /// The lid closure the last screen lock command was started for.
+    private var lockRequestLidClosureID: Int?
     private let closedLidVerifyInterval: TimeInterval = 30
 
     private var appEnabledClosedLidMode: Bool {
@@ -121,6 +173,8 @@ final class AppModel: ObservableObject {
 
     convenience init() {
         let powerController = PowerAssertionManager(creator: IOKitPowerAssertionCreator())
+        let displaySleeper = PMSetDisplaySleepService()
+        let screenLocker = SystemScreenLockService()
         self.init(
             settingsStore: SettingsStore(),
             closedLidOwnershipStore: UserDefaultsClosedLidOwnershipStore(),
@@ -134,18 +188,26 @@ final class AppModel: ObservableObject {
             clock: SystemClock(),
             closedLidDisplayCoordinator: ClosedLidDisplayCoordinator(
                 clamshellStateReader: IOKitClamshellStateReader(),
-                displaySleeper: PMSetDisplaySleepService(),
+                displaySleeper: displaySleeper,
                 screenLockStateReader: CGSessionScreenLockStateReader()
             ),
             closedLidLockCoordinator: ClosedLidLockCoordinator(
                 clamshellStateReader: IOKitClamshellStateReader(),
-                deviceLocker: SystemScreenLockService()
+                deviceLocker: screenLocker,
+                screenLockStateReader: CGSessionScreenLockStateReader()
             ),
             notificationService: SystemNotificationService(),
+            externalDisplayDetector: CGExternalDisplayDetector(),
             initialBattery: BatteryState.desktopOrUnknown(
                 lowPowerMode: ProcessInfo.processInfo.isLowPowerModeEnabled
             )
         )
+        displaySleeper.failureHandler = { [weak self] message in
+            self?.reportClosedLidDisplayFailure(message)
+        }
+        screenLocker.failureHandler = { [weak self] message in
+            self?.reportClosedLidLockFailure(message)
+        }
     }
 
     init(
@@ -162,8 +224,11 @@ final class AppModel: ObservableObject {
         closedLidDisplayCoordinator: ClosedLidDisplayCoordinator,
         closedLidLockCoordinator: ClosedLidLockCoordinator,
         notificationService: NotificationServicing,
+        externalDisplayDetector: ExternalDisplayDetecting,
         initialBattery: BatteryState,
-        closedLidModeChangeTimeout: TimeInterval = 6
+        closedLidModeChangeTimeout: TimeInterval = 6,
+        blockingWork: BlockingWorkPerforming = BackgroundBlockingWork(),
+        terminationRestoreTimeout: TimeInterval = 5
     ) {
         self.settingsStore = settingsStore
         self.closedLidOwnershipStore = closedLidOwnershipStore
@@ -174,6 +239,8 @@ final class AppModel: ObservableObject {
         self.softwareUpdateService = softwareUpdateService
         self.screenLockPermissionChecker = screenLockPermissionChecker
         self.closedLidModeChangeTimeout = closedLidModeChangeTimeout
+        self.blockingWork = blockingWork
+        self.terminationRestoreTimeout = terminationRestoreTimeout
         self.powerController = powerController
         self.clock = clock
         self.coordinator = WakePolicyCoordinator(
@@ -182,6 +249,7 @@ final class AppModel: ObservableObject {
         )
         self.closedLidDisplayCoordinator = closedLidDisplayCoordinator
         self.closedLidLockCoordinator = closedLidLockCoordinator
+        self.externalDisplayDetector = externalDisplayDetector
         self.notificationService = notificationService
         self.settings = settingsStore.load()
         self.battery = initialBattery
@@ -198,31 +266,37 @@ final class AppModel: ObservableObject {
         loadClosedLidOwnershipRecord()
         syncLaunchAtLoginStatus()
         syncClosedLidHelperStatus()
-        syncClosedLidStatus()
-        evaluate()
+        evaluate(forceClosedLidStatusRead: true)
         requestScreenLockAccessibilityPermissionIfNeeded()
         guard scheduleTimers else {
             return
         }
 
+        // Common modes, so the timers keep running while a modal alert or a
+        // tracking menu spins the run loop in a mode of its own. The callbacks
+        // run in place rather than through a main-actor task, which would wait
+        // on the main queue, and a modal loop started from a main-queue block
+        // does not drain it.
         timer?.invalidate()
-        let evaluateTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
-            Task { @MainActor in
+        let evaluateTimer = Timer(timeInterval: 5, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
                 self?.evaluate()
             }
         }
         // Give the kernel slack to coalesce these periodic wakeups with other
         // timers so a long-lived background process does not defeat App Nap.
         evaluateTimer.tolerance = 1
+        RunLoop.main.add(evaluateTimer, forMode: .common)
         timer = evaluateTimer
 
         closedLidSideEffectsTimer?.invalidate()
-        let sideEffectsTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
-            Task { @MainActor in
+        let sideEffectsTimer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated {
                 self?.reconcileClosedLidSideEffects()
             }
         }
         sideEffectsTimer.tolerance = 0.5
+        RunLoop.main.add(sideEffectsTimer, forMode: .common)
         closedLidSideEffectsTimer = sideEffectsTimer
     }
 
@@ -368,16 +442,20 @@ final class AppModel: ObservableObject {
             && closedLidError != nil
     }
 
+    static let closedLidFailureRetryDelay: TimeInterval = 60
+
     func refreshClosedLidPermissionState() {
+        closedLidRetryNotBefore = nil
         syncClosedLidHelperStatus()
-        syncClosedLidStatus()
+        reconcileClosedLidMode(forceStatusRead: true)
     }
 
     func refreshAfterExternalPermissionChange() {
-        refreshClosedLidPermissionState()
-        refreshScreenLockAccessibilityState(prompt: false)
-        evaluate()
-        refreshScreenLockAccessibilityState(prompt: false)
+        closedLidRetryNotBefore = nil
+        syncLaunchAtLoginStatus()
+        syncClosedLidHelperStatus()
+        // `evaluate` refreshes the Accessibility state on its way through.
+        evaluate(forceClosedLidStatusRead: true)
         // The user just opened a window to look at this, so answer now rather
         // than on the next interval.
         probeClosedLidHelperIfBlocked(force: true)
@@ -438,6 +516,9 @@ final class AppModel: ObservableObject {
         logger.info("closed-lid helper reachable again, clearing repair prompt")
         closedLidError = nil
         suppressedClosedLidTarget = nil
+        // The helper may have been restarted while unreachable.
+        closedLidRestoreWatchdogArmed = false
+        lastClosedLidVerifiedAt = nil
         evaluate()
     }
 
@@ -453,12 +534,133 @@ final class AppModel: ObservableObject {
         closedLidSideEffectsTimer?.invalidate()
         closedLidSideEffectsTimer = nil
         powerController.release()
-        restoreClosedLidModeForTerminationIfNeeded()
+    }
+
+    /// Stops the model and restores closed-lid mode on the way out, without
+    /// holding the main thread while the helper answers.
+    ///
+    /// `completion` runs once: when the restore settles, or after
+    /// `terminationRestoreTimeout`, whichever comes first. A quit during a
+    /// repair waits for the repair to settle before that restore starts. A restore still out
+    /// when the app exits keeps its ownership record for the next launch, and
+    /// the helper restores on its own once it sees this process exit.
+    func prepareForTermination(completion: @escaping @MainActor () -> Void) {
+        stop()
+        isTerminating = true
+
+        var didComplete = false
+        let complete: @MainActor () -> Void = {
+            guard !didComplete else {
+                return
+            }
+            didComplete = true
+            completion()
+        }
+
+        guard appEnabledClosedLidMode else {
+            complete()
+            return
+        }
+
+        // A repair has already stopped the old helper, and with it the
+        // watchdog, so the restore has to go through the one replacing it.
+        // The repair answers within its own timeout.
+        if isRepairingClosedLidHelper {
+            terminationRestoreAfterRepair = { [weak self] in
+                self?.restoreClosedLidModeForTermination(complete: complete)
+            }
+            return
+        }
+
+        restoreClosedLidModeForTermination(complete: complete)
+    }
+
+    private func restoreClosedLidModeForTermination(complete: @escaping @MainActor () -> Void) {
+        syncClosedLidHelperStatus()
+
+        // Only a repair that unregistered and then could not register again
+        // leaves owned closed-lid mode with no registration, and no other
+        // process can turn it off. The earlier approval still covers this.
+        if closedLidHelperStatus == .notRegistered {
+            do {
+                try closedLidHelperService.register()
+                logger.info("registered closed-lid helper again to restore before quitting")
+            } catch {
+                logger.error("closed-lid helper registration before quitting failed error=\(error.localizedDescription, privacy: .public)")
+            }
+            syncClosedLidHelperStatus()
+        }
+
+        // Restoring a mode that is already off is harmless, while reading
+        // `pmset` first would spend part of the quit on a process that can
+        // stall. Assuming it is on also covers an enable still in flight,
+        // which can land after any read.
+        switch ClosedLidOwnershipReducer.restoreAction(
+            record: closedLidOwnershipRecord,
+            desiredClosedLidMode: false,
+            currentStatus: .enabled,
+            helperCanControlClosedLidMode: closedLidHelperStatus.canControlClosedLidMode,
+            attemptedAt: Date()
+        ) {
+        case .none:
+            complete()
+            return
+        case .clearRecord:
+            saveClosedLidOwnershipRecord(nil)
+            suppressedClosedLidTarget = nil
+            closedLidError = nil
+            complete()
+            return
+        case let .blockedByHelper(record):
+            saveClosedLidOwnershipRecord(record)
+            suppressedClosedLidTarget = false
+            closedLidError = "Advanced Helper is not ready, so closed-lid mode could not be restored."
+            complete()
+            return
+        case let .restore(record):
+            saveClosedLidOwnershipRecord(record)
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + terminationRestoreTimeout) { [weak self] in
+            self?.logger.error("closed-lid restore did not finish before quitting")
+            complete()
+        }
+
+        closedLidHelperService.setClosedLidMode(enabled: false) { [weak self] result in
+            DispatchQueue.main.async {
+                self?.finishTerminationRestore(result: result)
+                complete()
+            }
+        }
+    }
+
+    private func finishTerminationRestore(result: Result<Void, Error>) {
+        let errorMessage: String?
+        if case let .failure(error) = result {
+            errorMessage = error.localizedDescription
+        } else {
+            errorMessage = nil
+        }
+
+        switch ClosedLidOwnershipReducer.restoreCompletion(didComplete: true, errorMessage: errorMessage) {
+        case .clearRecord:
+            saveClosedLidOwnershipRecord(nil)
+            suppressedClosedLidTarget = nil
+            closedLidError = nil
+        case let .keepRecord(message):
+            closedLidError = message
+        }
     }
 
     func updateSettings(_ update: (inout UserSettings) -> Void) {
         var nextSettings = settings
         update(&nextSettings)
+        // A scheduled stop belongs to the run it was set for. Kept across an
+        // off and on, a deadline that passed in between would turn the app
+        // straight back off.
+        if !nextSettings.enabled {
+            nextSettings.stopAt = nil
+        }
         settings = nextSettings
         settingsStore.save(nextSettings)
         evaluate()
@@ -469,8 +671,10 @@ final class AppModel: ObservableObject {
         do {
             try loginItemService.setEnabled(enabled)
             launchAtLoginError = nil
+            let status = loginItemService.status
+            launchAtLoginNeedsApproval = status == .requiresApproval
             updateSettings { settings in
-                settings.launchAtLogin = loginItemService.isEnabled
+                settings.launchAtLogin = status != .disabled
             }
         } catch {
             launchAtLoginError = error.localizedDescription
@@ -495,6 +699,12 @@ final class AppModel: ObservableObject {
 
     func updateLidClosedDisplayMode(_ mode: LidClosedDisplayMode) {
         suppressedClosedLidTarget = nil
+        // Picking a mode after a failed removal asks for closed-lid mode
+        // again, but it cannot cancel a removal still underway, and that one
+        // relies on the flag if unregistering then fails.
+        if !isChangingClosedLidMode {
+            closedLidHelperRemovalRequested = false
+        }
         updateSettings { settings in
             settings.lidClosedDisplayMode = mode
             if mode == .keepDisplayOn {
@@ -504,16 +714,30 @@ final class AppModel: ObservableObject {
     }
 
     func setupClosedLidHelper() {
+        // A change or a removal in flight owns the helper until it settles;
+        // re-registering under it could let an enable land after the helper
+        // that would restore it is gone. Every change ends within its timeout.
+        guard !isChangingClosedLidMode else {
+            closedLidError = Self.closedLidHelperUpdateInProgressMessage
+            return
+        }
+
         if shouldOfferClosedLidHelperRepair {
             repairClosedLidHelper()
             return
         }
 
+        closedLidHelperRemovalRequested = false
+        closedLidRetryNotBefore = nil
         do {
             try closedLidHelperService.register()
             syncClosedLidHelperStatus()
             switch closedLidHelperStatus {
             case .enabled:
+                // A helper that was missing took its watchdog with it, and the
+                // process launchd starts now has never been sent an enable.
+                closedLidRestoreWatchdogArmed = false
+                lastClosedLidVerifiedAt = nil
                 closedLidError = nil
                 evaluate()
             case .requiresApproval:
@@ -533,11 +757,106 @@ final class AppModel: ObservableObject {
     }
 
     func repairClosedLidHelper() {
-        isChangingClosedLidMode = false
-        closedLidModeChangeID = nil
+        guard !isChangingClosedLidMode else {
+            closedLidError = Self.closedLidHelperUpdateInProgressMessage
+            return
+        }
 
-        do {
-            try closedLidHelperService.repairRegistration()
+        closedLidHelperRemovalRequested = false
+        closedLidRetryNotBefore = nil
+        // Held until macOS settles the registration, the same way a removal
+        // holds it, so no change reaches a helper that is being replaced.
+        isChangingClosedLidMode = true
+        isRepairingClosedLidHelper = true
+        restoreClosedLidModeBeforeRepair { [weak self] in
+            self?.registerClosedLidHelperForRepair()
+        }
+    }
+
+    /// Unregistering stops the helper and the restore watchdog it runs, and
+    /// the new registration takes seconds, so a crash in between would leave
+    /// owned closed-lid mode on with nothing watching. Turning the mode off
+    /// first closes that window whenever the current helper still answers, and
+    /// the repair turns it back on through the new helper. A helper that does
+    /// not answer could not restore after a crash either, so the repair then
+    /// goes ahead as it would have. One that answers but could not turn the
+    /// mode off still has a working watchdog, so the repair stops there.
+    private func restoreClosedLidModeBeforeRepair(then continueRepair: @escaping @MainActor () -> Void) {
+        guard appEnabledClosedLidMode, closedLidHelperStatus.canControlClosedLidMode else {
+            continueRepair()
+            return
+        }
+
+        closedLidHelperService.setClosedLidMode(enabled: false) { [weak self] result in
+            DispatchQueue.main.async {
+                guard let self, self.finishRestoreBeforeRepair(result: result) else {
+                    return
+                }
+
+                continueRepair()
+            }
+        }
+    }
+
+    /// Returns whether the repair should go on to replace the helper.
+    private func finishRestoreBeforeRepair(result: Result<Void, Error>) -> Bool {
+        switch result {
+        case .success:
+            logger.info("restored closed-lid mode before repairing the helper")
+            saveClosedLidOwnershipRecord(nil)
+            closedLidStatus = .disabled
+            suppressedClosedLidTarget = nil
+            return true
+        case let .failure(error):
+            logger.error("closed-lid restore before repair failed error=\(error.localizedDescription, privacy: .public)")
+            guard (error as? ClosedLidHelperFailure)?.isRecoverableByRepair == true else {
+                abortRepairingClosedLidHelper(restoreError: error)
+                return false
+            }
+
+            return true
+        }
+    }
+
+    private func abortRepairingClosedLidHelper(restoreError: Error) {
+        isChangingClosedLidMode = false
+        isRepairingClosedLidHelper = false
+        guard !isTerminating else {
+            let restore = terminationRestoreAfterRepair
+            terminationRestoreAfterRepair = nil
+            restore?()
+            return
+        }
+
+        closedLidError = "Lid Awake Helper could not turn closed-lid mode off before the repair, so it was not repaired: \(closedLidUserFacingError(from: restoreError))"
+    }
+
+    private func registerClosedLidHelperForRepair() {
+        // Unregistering stops the helper process, and the restore watchdog it
+        // ran, whether or not the new registration then succeeds.
+        closedLidRestoreWatchdogArmed = false
+        closedLidHelperService.repairRegistration { [weak self] result in
+            DispatchQueue.main.async {
+                self?.finishRepairingClosedLidHelper(result: result)
+            }
+        }
+    }
+
+    private func finishRepairingClosedLidHelper(result: Result<Void, Error>) {
+        isChangingClosedLidMode = false
+        isRepairingClosedLidHelper = false
+        guard !isTerminating else {
+            let restore = terminationRestoreAfterRepair
+            terminationRestoreAfterRepair = nil
+            restore?()
+            return
+        }
+
+        switch result {
+        case .success:
+            // Read again rather than trust the steady state, so the next
+            // evaluate reaches the watchdog check for the new helper process.
+            lastClosedLidVerifiedAt = nil
             syncClosedLidHelperStatus()
             suppressedClosedLidTarget = nil
             closedLidHelperNeedsRepair = false
@@ -555,7 +874,7 @@ final class AppModel: ObservableObject {
             case let .unavailable(message):
                 closedLidError = message
             }
-        } catch {
+        case let .failure(error):
             syncClosedLidHelperStatus()
             // Repair is only ever entered while it is already the offered
             // action, and a failure leaves that unchanged, so the flag is
@@ -588,18 +907,39 @@ final class AppModel: ObservableObject {
     }
 
     func removeClosedLidHelper() {
-        isChangingClosedLidMode = false
-        closedLidModeChangeID = nil
+        // An enable still in flight can land after the status read below, and
+        // removing the helper then would leave closed-lid mode on with no way
+        // to restore it.
+        guard !isChangingClosedLidMode else {
+            closedLidError = Self.closedLidHelperBusyMessage
+            return
+        }
 
+        closedLidHelperRemovalRequested = true
         syncClosedLidHelperStatus()
-        syncClosedLidStatus()
 
-        if appEnabledClosedLidMode, closedLidStatus == .enabled {
+        // Held across the status read as well, so nothing starts a change
+        // underneath the removal while `pmset` answers.
+        isChangingClosedLidMode = true
+        readClosedLidStatus { [weak self] status in
+            guard let self else {
+                return
+            }
+
+            isChangingClosedLidMode = false
+            continueRemovingClosedLidHelper(status: status)
+        }
+    }
+
+    private func continueRemovingClosedLidHelper(status: ClosedLidStatus) {
+        // Only a status `pmset` actually reported as disabled proves there is
+        // nothing to restore.
+        if appEnabledClosedLidMode, status != .disabled {
             restoreClosedLidModeBeforeRemovingHelper()
             return
         }
 
-        if appEnabledClosedLidMode, closedLidStatus != .enabled {
+        if appEnabledClosedLidMode {
             saveClosedLidOwnershipRecord(nil)
         }
 
@@ -623,9 +963,17 @@ final class AppModel: ObservableObject {
     }
 
     private func finishClosedLidRestoreBeforeHelperRemoval(result: Result<Void, Error>) {
-        isChangingClosedLidMode = false
-        syncClosedLidStatus()
+        readClosedLidStatus { [weak self] _ in
+            guard let self else {
+                return
+            }
 
+            isChangingClosedLidMode = false
+            continueRemovingClosedLidHelperAfterRestore(result: result)
+        }
+    }
+
+    private func continueRemovingClosedLidHelperAfterRestore(result: Result<Void, Error>) {
         switch result {
         case .success:
             guard closedLidStatus != .enabled else {
@@ -648,6 +996,7 @@ final class AppModel: ObservableObject {
     private func unregisterClosedLidHelper() {
         do {
             try closedLidHelperService.unregister()
+            closedLidHelperRemovalRequested = false
             syncClosedLidHelperStatus()
             closedLidError = nil
         } catch {
@@ -656,8 +1005,10 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// Keeps the Mac awake for `interval`, turning Keep Awake on if it was off.
     func scheduleStop(for interval: TimeInterval) {
         updateSettings { settings in
+            settings.enabled = true
             settings.stopAt = clock.now.addingTimeInterval(interval)
         }
     }
@@ -668,12 +1019,13 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// `AppDelegate` stops the model and restores closed-lid mode while
+    /// AppKit waits on `applicationShouldTerminate`.
     func quit() {
-        stop()
         NSApplication.shared.terminate(nil)
     }
 
-    func evaluate() {
+    func evaluate(forceClosedLidStatusRead: Bool = false) {
         logger.debug("evaluate begin")
         let now = clock.now
         stopWhenDeadlineIsReached(now: now)
@@ -697,7 +1049,7 @@ final class AppModel: ObservableObject {
             )
         }
         notificationService.handleTransition(from: previousStatus, to: status)
-        reconcileClosedLidMode(desired: shouldEnableClosedLidMode, forceDisable: false)
+        reconcileClosedLidMode(forceStatusRead: forceClosedLidStatusRead)
         reconcileClosedLidSideEffects()
         probeClosedLidHelperIfBlocked()
     }
@@ -732,8 +1084,20 @@ final class AppModel: ObservableObject {
         ]
     }
 
+    func openLoginItemsSettings() {
+        loginItemService.openLoginItemsSettings()
+    }
+
+    /// A registration waiting for approval still counts as on: the user asked
+    /// for it, and turning the toggle off behind their back would hide that
+    /// one more step in System Settings is all that is missing.
     private func syncLaunchAtLoginStatus() {
-        let enabled = loginItemService.isEnabled
+        let status = loginItemService.status
+        if launchAtLoginNeedsApproval != (status == .requiresApproval) {
+            launchAtLoginNeedsApproval = status == .requiresApproval
+        }
+
+        let enabled = status != .disabled
         guard settings.launchAtLogin != enabled else {
             return
         }
@@ -760,11 +1124,26 @@ final class AppModel: ObservableObject {
         return false
     }
 
-    private func syncClosedLidStatus() {
-        let next = closedLidStatusReader.readClosedLidStatus()
-        if closedLidStatus != next {
-            closedLidStatus = next
-        }
+    /// Reads `pmset` on the blocking-work queue and publishes the result
+    /// before handing it to `completion` on the main actor.
+    ///
+    /// Reads are never shared: a caller that needs the status after some
+    /// event, such as a helper reply, must not be handed a read that started
+    /// before it.
+    private func readClosedLidStatus(then completion: @escaping @MainActor (ClosedLidStatus) -> Void) {
+        let reader = closedLidStatusReader
+        blockingWork.perform({
+            reader.readClosedLidStatus()
+        }, then: { [weak self] status in
+            guard let self else {
+                return
+            }
+
+            if closedLidStatus != status {
+                closedLidStatus = status
+            }
+            completion(status)
+        })
     }
 
     private func loadClosedLidOwnershipRecord() {
@@ -809,6 +1188,17 @@ final class AppModel: ObservableObject {
             return
         }
 
+        // A change the helper ran and `pmset` refused would fail the same way
+        // on the next evaluate, so it waits out a delay instead of spawning
+        // the helper call every five seconds.
+        if let retryNotBefore = closedLidRetryNotBefore {
+            guard clock.now >= retryNotBefore else {
+                return
+            }
+
+            closedLidRetryNotBefore = nil
+        }
+
         suppressedClosedLidTarget = nil
 
         guard let closedLidError, isClosedLidReadinessError(closedLidError) else {
@@ -816,6 +1206,18 @@ final class AppModel: ObservableObject {
         }
 
         self.closedLidError = nil
+    }
+
+    /// Closed-lid mode being on and wanted is the healthy steady state, except
+    /// after a removal that could not finish: there it is the very thing the
+    /// warning is about, and clearing it would hide that the helper is still
+    /// installed.
+    private func clearClosedLidErrorUnlessRemovalPending() {
+        guard !closedLidHelperRemovalRequested else {
+            return
+        }
+
+        closedLidError = nil
     }
 
     private func isClosedLidReadinessError(_ message: String) -> Bool {
@@ -827,38 +1229,64 @@ final class AppModel: ObservableObject {
             || message.contains("needs approval in System Settings")
     }
 
-    private func reconcileClosedLidMode(desired: Bool, forceDisable: Bool) {
-        if isChangingClosedLidMode {
+    /// Moves closed-lid mode toward what the current settings want.
+    ///
+    /// Anything that needs a fresh status reads it off the main actor and
+    /// finishes in `finishReconcilingClosedLidMode`, which checks every
+    /// condition again, since any of them can change while `pmset` answers.
+    private func reconcileClosedLidMode(forceStatusRead: Bool = false) {
+        guard !isChangingClosedLidMode, !isTerminating else {
             return
         }
 
         syncClosedLidHelperStatus()
 
-        guard desired || forceDisable || appEnabledClosedLidMode else {
+        let desired = shouldEnableClosedLidMode
+        guard desired || appEnabledClosedLidMode || forceStatusRead else {
             return
         }
 
         // Steady state: when closed-lid mode is already enabled and still desired,
         // re-verify with `pmset` only occasionally instead of spawning a subprocess
-        // on every 5s evaluate. syncClosedLidStatus() fork/execs /usr/bin/pmset, so
-        // an unthrottled read here is ~17k process spawns/day while holding.
-        if desired, !forceDisable, closedLidStatus == .enabled,
+        // on every 5s evaluate. Each read fork/execs /usr/bin/pmset, so an
+        // unthrottled read here is ~17k process spawns/day while holding.
+        if desired, !forceStatusRead, closedLidStatus == .enabled,
            let lastVerified = lastClosedLidVerifiedAt,
            Date().timeIntervalSince(lastVerified) < closedLidVerifyInterval {
-            closedLidError = nil
+            clearClosedLidErrorUnlessRemovalPending()
             return
         }
 
-        syncClosedLidStatus()
-        lastClosedLidVerifiedAt = closedLidStatus == .enabled ? Date() : nil
+        guard !isReadingClosedLidStatus else {
+            return
+        }
 
-        if desired {
-            guard closedLidStatus != .enabled else {
-                closedLidError = nil
+        isReadingClosedLidStatus = true
+        readClosedLidStatus { [weak self] status in
+            guard let self else {
                 return
             }
 
-            guard suppressedClosedLidTarget != true else {
+            isReadingClosedLidStatus = false
+            finishReconcilingClosedLidMode(status: status)
+        }
+    }
+
+    private func finishReconcilingClosedLidMode(status: ClosedLidStatus) {
+        guard !isChangingClosedLidMode, !isTerminating else {
+            return
+        }
+
+        lastClosedLidVerifiedAt = status == .enabled ? Date() : nil
+
+        if shouldEnableClosedLidMode {
+            guard status != .enabled else {
+                clearClosedLidErrorUnlessRemovalPending()
+                rearmClosedLidRestoreWatchdogIfNeeded()
+                return
+            }
+
+            guard suppressedClosedLidTarget != true, !closedLidHelperRemovalRequested else {
                 return
             }
 
@@ -868,22 +1296,18 @@ final class AppModel: ObservableObject {
                 return
             }
 
-            setClosedLidMode(enabled: true, previousStatus: closedLidStatus)
+            setClosedLidMode(enabled: true, previousStatus: status)
             return
         }
 
-        guard appEnabledClosedLidMode || forceDisable else {
-            return
-        }
-
-        guard suppressedClosedLidTarget != false || forceDisable else {
+        guard appEnabledClosedLidMode, suppressedClosedLidTarget != false else {
             return
         }
 
         switch ClosedLidOwnershipReducer.restoreAction(
             record: closedLidOwnershipRecord,
-            desiredClosedLidMode: desired && !forceDisable,
-            currentStatus: closedLidStatus,
+            desiredClosedLidMode: false,
+            currentStatus: status,
             helperCanControlClosedLidMode: closedLidHelperStatus.canControlClosedLidMode,
             attemptedAt: Date()
         ) {
@@ -901,15 +1325,43 @@ final class AppModel: ObservableObject {
             return
         case let .restore(record):
             saveClosedLidOwnershipRecord(record)
-            setClosedLidMode(enabled: false, previousStatus: closedLidStatus)
+            setClosedLidMode(enabled: false, previousStatus: status)
         }
+    }
+
+    /// Sends the enable again when this app owns closed-lid mode but the
+    /// running helper is not watching this process, so a crash still gets
+    /// restored. The mode is already on, so the request changes nothing else
+    /// and the ownership record carries over.
+    private func rearmClosedLidRestoreWatchdogIfNeeded() {
+        guard appEnabledClosedLidMode,
+              !closedLidRestoreWatchdogArmed,
+              closedLidHelperStatus.canControlClosedLidMode,
+              !closedLidHelperNeedsRepair,
+              !closedLidHelperRemovalRequested,
+              suppressedClosedLidTarget != true else {
+            return
+        }
+
+        logger.info("re-sending closed-lid enable so the helper watches this process")
+        setClosedLidMode(enabled: true, previousStatus: .enabled)
     }
 
     private func setClosedLidMode(enabled: Bool, previousStatus: ClosedLidStatus) {
         let changeID = UUID()
-        closedLidModeChangeID = changeID
+        pendingClosedLidModeChange = ClosedLidModeChange(id: changeID, enabled: enabled)
         isChangingClosedLidMode = true
         closedLidError = nil
+        if enabled {
+            let intentRecord = ClosedLidOwnershipReducer.recordBeforeEnabling(
+                previousStatus: previousStatus,
+                existingRecord: closedLidOwnershipRecord,
+                at: Date()
+            )
+            if intentRecord != closedLidOwnershipRecord {
+                saveClosedLidOwnershipRecord(intentRecord)
+            }
+        }
         scheduleClosedLidModeChangeTimeout(
             changeID: changeID,
             enabled: enabled,
@@ -918,18 +1370,20 @@ final class AppModel: ObservableObject {
 
         closedLidHelperService.setClosedLidMode(enabled: enabled) { [weak self] result in
             DispatchQueue.main.async {
-                guard let self else {
+                // A reply that already timed out is not worth a `pmset` read.
+                guard let self, self.pendingClosedLidModeChange?.id == changeID else {
                     return
                 }
 
-                let status = self.closedLidStatusReader.readClosedLidStatus()
-                self.finishClosedLidModeChange(
-                    changeID: changeID,
-                    enabled: enabled,
-                    result: result,
-                    previousStatus: previousStatus,
-                    status: status
-                )
+                self.readClosedLidStatus { [weak self] status in
+                    self?.finishClosedLidModeChange(
+                        changeID: changeID,
+                        enabled: enabled,
+                        result: result,
+                        previousStatus: previousStatus,
+                        status: status
+                    )
+                }
             }
         }
     }
@@ -960,11 +1414,11 @@ final class AppModel: ObservableObject {
         previousStatus: ClosedLidStatus,
         status: ClosedLidStatus
     ) {
-        guard closedLidModeChangeID == changeID else {
+        guard pendingClosedLidModeChange?.id == changeID else {
             return
         }
 
-        closedLidModeChangeID = nil
+        pendingClosedLidModeChange = nil
         isChangingClosedLidMode = false
         closedLidStatus = status
 
@@ -978,13 +1432,20 @@ final class AppModel: ObservableObject {
                 at: Date()
             )
             saveClosedLidOwnershipRecord(nextRecord)
+            closedLidRestoreWatchdogArmed = enabled
             suppressedClosedLidTarget = nil
+            closedLidRetryNotBefore = nil
             closedLidError = nil
             closedLidHelperNeedsRepair = false
         case let .failure(error):
             suppressedClosedLidTarget = enabled
             closedLidError = closedLidUserFacingError(from: error)
             closedLidHelperNeedsRepair = isRepairableClosedLidFailure(error)
+            // A helper that cannot be reached waits for repair or a probe
+            // instead; this delay is for one that answered and failed.
+            closedLidRetryNotBefore = closedLidHelperNeedsRepair
+                ? nil
+                : clock.now.addingTimeInterval(Self.closedLidFailureRetryDelay)
         }
 
         reconcileClosedLidSideEffects()
@@ -995,12 +1456,35 @@ final class AppModel: ObservableObject {
         enabled: Bool,
         previousStatus: ClosedLidStatus
     ) {
-        guard closedLidModeChangeID == changeID else {
+        guard pendingClosedLidModeChange?.id == changeID else {
             return
         }
 
-        let status = closedLidStatusReader.readClosedLidStatus()
-        if status == (enabled ? .enabled : .disabled) {
+        readClosedLidStatus { [weak self] status in
+            self?.finishClosedLidModeChangeTimeout(
+                changeID: changeID,
+                enabled: enabled,
+                previousStatus: previousStatus,
+                status: status
+            )
+        }
+    }
+
+    private func finishClosedLidModeChangeTimeout(
+        changeID: UUID,
+        enabled: Bool,
+        previousStatus: ClosedLidStatus,
+        status: ClosedLidStatus
+    ) {
+        // The reply can land while `pmset` answers, and then it has the say.
+        guard pendingClosedLidModeChange?.id == changeID else {
+            return
+        }
+
+        // Reaching the target only shows the helper acted when the mode was
+        // somewhere else before. A re-arm starts from the target already.
+        let target: ClosedLidStatus = enabled ? .enabled : .disabled
+        if status == target, previousStatus != target {
             finishClosedLidModeChange(
                 changeID: changeID,
                 enabled: enabled,
@@ -1011,7 +1495,7 @@ final class AppModel: ObservableObject {
             return
         }
 
-        closedLidModeChangeID = nil
+        pendingClosedLidModeChange = nil
         isChangingClosedLidMode = false
         syncClosedLidHelperStatus()
         closedLidStatus = status
@@ -1028,7 +1512,13 @@ final class AppModel: ObservableObject {
         // When disabled, neither the lock nor the display coordinator can act, so
         // skip their per-tick IOKit clamshell reads entirely rather than polling
         // AppleClamshellState twice every second for the life of the process.
-        guard settings.enabled else {
+        // A lid closed on an external display is clamshell use: the user is
+        // still at the Mac, so locking it or sleeping every display would cut
+        // them off. Forgetting the lid state there also keeps an unplug later
+        // from looking like a fresh close.
+        guard settings.enabled, !externalDisplayDetector.hasActiveExternalDisplay else {
+            closedLidLockCoordinator.forgetLidState()
+            closedLidDisplayCoordinator.forgetLidState()
             return
         }
 
@@ -1044,6 +1534,13 @@ final class AppModel: ObservableObject {
             clearScreenLockAccessibilityErrorIfNeeded()
             return
         }
+        // macOS queues a fresh system dialog for every prompt, so toggling the
+        // setting must not stack them. The Settings window covers later asks.
+        guard !didPromptForScreenLockAccessibility else {
+            refreshScreenLockAccessibilityState(prompt: false)
+            return
+        }
+        didPromptForScreenLockAccessibility = true
         refreshScreenLockAccessibilityState(prompt: true)
     }
 
@@ -1095,6 +1592,10 @@ final class AppModel: ObservableObject {
             break
         case .requestedLock:
             closedLidLockError = nil
+            // A request folded into a command still running from an earlier
+            // closure is only served by that command, so its failure leaves
+            // this closure unlocked too and is reported for it.
+            lockRequestLidClosureID = closedLidLockCoordinator.lidClosureID
             logger.info("requested screen lock for closed lid")
         case let .failed(message):
             closedLidLockError = message
@@ -1115,11 +1616,38 @@ final class AppModel: ObservableObject {
             break
         case .requestedDisplaySleep:
             closedLidDisplayError = nil
+            displaySleepRequestLidClosureID = closedLidDisplayCoordinator.lidClosureID
             logger.info("requested display sleep for closed lid")
         case let .failed(message):
             closedLidDisplayError = message
             logger.error("display sleep request failed message=\(message, privacy: .public)")
         }
+    }
+
+    /// A display sleep command that failed after the coordinator handed it off.
+    func reportClosedLidDisplayFailure(_ message: String) {
+        // Nothing clears an error published after its closure ended, since the
+        // coordinator stops acting once the lid opens or the mode changes.
+        guard displaySleepRequestLidClosureID == closedLidDisplayCoordinator.lidClosureID else {
+            logger.info("ignored display sleep failure from a lid closure that already ended")
+            return
+        }
+
+        closedLidDisplayError = message
+        logger.error("display sleep request failed message=\(message, privacy: .public)")
+    }
+
+    /// A screen lock command that failed after the coordinator handed it off.
+    func reportClosedLidLockFailure(_ message: String) {
+        // Same as display sleep: the coordinator stops acting once the lid
+        // opens, an external display takes over, or Keep Awake turns off.
+        guard lockRequestLidClosureID == closedLidLockCoordinator.lidClosureID else {
+            logger.info("ignored screen lock failure from a lid closure that already ended")
+            return
+        }
+
+        closedLidLockError = message
+        logger.error("screen lock request failed message=\(message, privacy: .public)")
     }
 
     private func closedLidUserFacingError(from error: Error) -> String {
@@ -1149,61 +1677,5 @@ final class AppModel: ObservableObject {
 
         closedLidHelperService.openApprovalSettings()
         return "macOS blocked removing the helper. Disable Lid Awake Helper in System Settings, then return here."
-    }
-
-    private func restoreClosedLidModeForTerminationIfNeeded() {
-        guard appEnabledClosedLidMode else {
-            return
-        }
-
-        syncClosedLidHelperStatus()
-        syncClosedLidStatus()
-
-        switch ClosedLidOwnershipReducer.restoreAction(
-            record: closedLidOwnershipRecord,
-            desiredClosedLidMode: false,
-            currentStatus: closedLidStatus,
-            helperCanControlClosedLidMode: closedLidHelperStatus.canControlClosedLidMode,
-            attemptedAt: Date()
-        ) {
-        case .none:
-            return
-        case .clearRecord:
-            saveClosedLidOwnershipRecord(nil)
-            suppressedClosedLidTarget = nil
-            closedLidError = nil
-            return
-        case let .blockedByHelper(record):
-            saveClosedLidOwnershipRecord(record)
-            suppressedClosedLidTarget = false
-            closedLidError = "Advanced Helper is not ready, so closed-lid mode could not be restored."
-            return
-        case let .restore(record):
-            saveClosedLidOwnershipRecord(record)
-        }
-
-        let semaphore = DispatchSemaphore(value: 0)
-        var restoreError: Error?
-        closedLidHelperService.setClosedLidMode(enabled: false) { result in
-            if case let .failure(error) = result {
-                restoreError = error
-            }
-            semaphore.signal()
-        }
-        let didComplete = semaphore.wait(timeout: .now() + 3) == .success
-        let completion = ClosedLidOwnershipReducer.restoreCompletion(
-            didComplete: didComplete,
-            errorMessage: restoreError?.localizedDescription
-        )
-
-        switch completion {
-        case .clearRecord:
-            saveClosedLidOwnershipRecord(nil)
-            suppressedClosedLidTarget = nil
-            closedLidError = nil
-            syncClosedLidStatus()
-        case let .keepRecord(errorMessage):
-            closedLidError = errorMessage
-        }
     }
 }

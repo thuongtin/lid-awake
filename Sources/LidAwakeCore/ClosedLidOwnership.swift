@@ -99,6 +99,34 @@ public enum ClosedLidOwnershipReducer {
         )
     }
 
+    /// Claims ownership before the enable request is sent.
+    ///
+    /// The helper can apply `disablesleep 1` and still miss its reply deadline,
+    /// and the app can quit or crash while the request is in flight. Recording
+    /// only after a successful reply would leave the global setting on with
+    /// nothing that knows to restore it. A claim made here is harmless when the
+    /// enable never lands: restore clears it once the system reports disabled.
+    public static func recordBeforeEnabling(
+        previousStatus: ClosedLidStatus,
+        existingRecord: ClosedLidOwnershipRecord?,
+        at date: Date
+    ) -> ClosedLidOwnershipRecord? {
+        if let existingRecord, existingRecord.ownedByThisApp {
+            return existingRecord
+        }
+
+        guard previousStatus != .enabled else {
+            return existingRecord
+        }
+
+        return ClosedLidOwnershipRecord(
+            ownedByThisApp: true,
+            enabledAt: date,
+            previousStatus: previousStatus,
+            lastAttemptedRestoreAt: nil
+        )
+    }
+
     public static func restoreAction(
         record: ClosedLidOwnershipRecord?,
         desiredClosedLidMode: Bool,
@@ -114,7 +142,9 @@ public enum ClosedLidOwnershipReducer {
             return .none
         }
 
-        guard currentStatus == .enabled else {
+        // An unreadable status is not evidence that closed-lid mode is off, so
+        // only a reported `.disabled` retires the record without a restore.
+        guard currentStatus != .disabled else {
             return .clearRecord
         }
 

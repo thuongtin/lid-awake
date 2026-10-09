@@ -126,6 +126,33 @@ final class ClosedLidDisplayCoordinatorTests: XCTestCase {
         XCTAssertEqual(displaySleeper.sleepCount, 3)
     }
 
+    func testARequestFoldedIntoOneStillRunningIsNotCounted() {
+        let clamshellStateReader = FakeClamshellStateReader(state: .open)
+        let displaySleeper = FakeDisplaySleeper()
+        let coordinator = ClosedLidDisplayCoordinator(
+            clamshellStateReader: clamshellStateReader,
+            displaySleeper: displaySleeper
+        )
+        var settings = UserSettings.defaults
+        settings.lidClosedDisplayMode = .turnDisplayOff
+
+        _ = coordinator.update(settings: settings, wakeStatus: holdingStatus(), closedLidStatus: .enabled)
+        clamshellStateReader.state = .closed
+
+        // One slow command spans several ticks; only commands that actually
+        // started use up the three attempts.
+        var actions: [ClosedLidDisplayAction] = []
+        for accepted in [true, false, false, false, true, true, true] {
+            displaySleeper.acceptsRequest = accepted
+            actions.append(coordinator.update(settings: settings, wakeStatus: holdingStatus(), closedLidStatus: .enabled))
+        }
+
+        XCTAssertEqual(actions, [
+            .requestedDisplaySleep, .none, .none, .none,
+            .requestedDisplaySleep, .requestedDisplaySleep, .none,
+        ])
+    }
+
     func testWaitsForLockedSessionBeforeDisplaySleepWhenLockOnCloseIsEnabled() {
         let clamshellStateReader = FakeClamshellStateReader(state: .open)
         let displaySleeper = FakeDisplaySleeper()
@@ -332,6 +359,35 @@ final class ClosedLidDisplayCoordinatorTests: XCTestCase {
         XCTAssertEqual(displaySleeper.sleepCount, 1)
     }
 
+    func testLidClosureIDChangesOnlyWhenAClosureStartsOrEnds() {
+        let clamshellStateReader = FakeClamshellStateReader(state: .open)
+        let coordinator = ClosedLidDisplayCoordinator(
+            clamshellStateReader: clamshellStateReader,
+            displaySleeper: FakeDisplaySleeper()
+        )
+        var settings = UserSettings.defaults
+        settings.lidClosedDisplayMode = .turnDisplayOff
+        let update = {
+            coordinator.update(settings: settings, wakeStatus: holdingStatus(), closedLidStatus: .enabled)
+        }
+
+        update()
+        let openID = coordinator.lidClosureID
+        clamshellStateReader.state = .closed
+        update()
+        let closedID = coordinator.lidClosureID
+        update()
+        XCTAssertNotEqual(closedID, openID)
+        XCTAssertEqual(coordinator.lidClosureID, closedID)
+
+        clamshellStateReader.state = .open
+        update()
+        XCTAssertNotEqual(coordinator.lidClosureID, closedID)
+        let reopenedID = coordinator.lidClosureID
+        update()
+        XCTAssertEqual(coordinator.lidClosureID, reopenedID)
+    }
+
     func testReturnsFailureWhenDisplaySleepFails() {
         let clamshellStateReader = FakeClamshellStateReader(state: .open)
         let displaySleeper = FakeDisplaySleeper()
@@ -389,12 +445,14 @@ private final class FakeClamshellStateReader: ClamshellStateReading {
 private final class FakeDisplaySleeper: DisplaySleeping {
     var sleepCount = 0
     var error: Error?
+    var acceptsRequest = true
 
-    func sleepDisplaysNow() throws {
+    func sleepDisplaysNow() throws -> Bool {
         sleepCount += 1
         if let error {
             throw error
         }
+        return acceptsRequest
     }
 }
 

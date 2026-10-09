@@ -172,10 +172,14 @@ cat >"$INFO_PLIST" <<PLIST
   <string>$APP_VERSION</string>
   <key>CFBundleVersion</key>
   <string>$APP_BUILD</string>
+  <key>LidAwakeBuildConfiguration</key>
+  <string>$CONFIGURATION</string>
   <key>LSApplicationCategoryType</key>
   <string>public.app-category.utilities</string>
   <key>LSMinimumSystemVersion</key>
   <string>$MIN_SYSTEM_VERSION</string>
+  <key>LSUIElement</key>
+  <true/>
   <key>NSHumanReadableCopyright</key>
   <string>Copyright (c) 2026 Lid Awake contributors</string>
   <key>NSPrincipalClass</key>

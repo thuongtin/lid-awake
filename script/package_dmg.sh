@@ -16,6 +16,44 @@ if [[ ! -d "$APP_BUNDLE" ]]; then
   exit 2
 fi
 
+# A public DMG wraps whatever sits in dist/ at the time, and
+# ./scripts/check.sh restages a debug bundle there, so check that the app is
+# still the signed, notarized release build before packaging it.
+if [[ "$ALLOW_NON_DEVELOPER_ID_RELEASE" != "1" ]]; then
+  if ! codesign --verify --deep --strict "$APP_BUNDLE" 2>/dev/null; then
+    echo "error: $APP_BUNDLE does not pass codesign --verify --deep --strict" >&2
+    exit 2
+  fi
+
+  # Captured first: grep -q exits on the first match, and with pipefail the
+  # SIGPIPE codesign then gets would fail a correctly signed app.
+  signing_info="$(codesign -dv --verbose=2 "$APP_BUNDLE" 2>&1 || true)"
+  if ! grep -q '^Authority=Developer ID Application:' <<<"$signing_info"; then
+    echo "error: $APP_BUNDLE is not signed with a Developer ID Application identity" >&2
+    exit 2
+  fi
+
+  if ! xcrun stapler validate "$APP_BUNDLE" >/dev/null 2>&1; then
+    echo "error: $APP_BUNDLE has no stapled notarization ticket" >&2
+    echo "hint: notarize the release zip, then run xcrun stapler staple dist/LidAwake.app" >&2
+    exit 2
+  fi
+
+  # Staging records its configuration, since Sparkle keys alone do not tell
+  # a release build from a debug one staged with SPARKLE_ENABLED=1.
+  build_configuration="$(/usr/libexec/PlistBuddy -c 'Print :LidAwakeBuildConfiguration' "$INFO_PLIST" 2>/dev/null || true)"
+  if [[ "$build_configuration" != "release" ]]; then
+    echo "error: $APP_BUNDLE is not a release build (configuration: ${build_configuration:-unknown})" >&2
+    echo "hint: restage with CONFIGURATION=release, then sign, notarize, and staple it again" >&2
+    exit 2
+  fi
+
+  if ! /usr/libexec/PlistBuddy -c 'Print :SUPublicEDKey' "$INFO_PLIST" >/dev/null 2>&1; then
+    echo "error: $APP_BUNDLE has no SUPublicEDKey, so it cannot verify updates" >&2
+    exit 2
+  fi
+fi
+
 if [[ -z "$SIGNING_IDENTITY" ]]; then
   SIGNING_IDENTITY="$(
     security find-identity -v -p codesigning 2>/dev/null \

@@ -96,6 +96,65 @@ final class ClosedLidOwnershipTests: XCTestCase {
         XCTAssertNil(record)
     }
 
+    func testEnableIntentClaimsOwnershipBeforeTheHelperAnswers() {
+        let requestedAt = Date(timeIntervalSince1970: 1_800_000_000)
+
+        let record = ClosedLidOwnershipReducer.recordBeforeEnabling(
+            previousStatus: .disabled,
+            existingRecord: nil,
+            at: requestedAt
+        )
+
+        XCTAssertEqual(record, ClosedLidOwnershipRecord(
+            ownedByThisApp: true,
+            enabledAt: requestedAt,
+            previousStatus: .disabled,
+            lastAttemptedRestoreAt: nil
+        ))
+    }
+
+    func testEnableIntentDoesNotClaimPreExistingEnabledState() {
+        let record = ClosedLidOwnershipReducer.recordBeforeEnabling(
+            previousStatus: .enabled,
+            existingRecord: nil,
+            at: Date(timeIntervalSince1970: 1_800_000_000)
+        )
+
+        XCTAssertNil(record)
+    }
+
+    func testEnableIntentKeepsExistingOwnership() {
+        let existingRecord = ownedRecord()
+
+        let record = ClosedLidOwnershipReducer.recordBeforeEnabling(
+            previousStatus: .disabled,
+            existingRecord: existingRecord,
+            at: Date(timeIntervalSince1970: 1_800_000_900)
+        )
+
+        XCTAssertEqual(record, existingRecord)
+    }
+
+    func testCleanupStillRestoresWhenStatusIsNotReported() {
+        let attemptedAt = Date(timeIntervalSince1970: 1_800_000_600)
+        let record = ownedRecord()
+
+        let action = ClosedLidOwnershipReducer.restoreAction(
+            record: record,
+            desiredClosedLidMode: false,
+            currentStatus: .notReported,
+            helperCanControlClosedLidMode: true,
+            attemptedAt: attemptedAt
+        )
+
+        XCTAssertEqual(action, .restore(ClosedLidOwnershipRecord(
+            ownedByThisApp: true,
+            enabledAt: record.enabledAt,
+            previousStatus: .disabled,
+            lastAttemptedRestoreAt: attemptedAt
+        )))
+    }
+
     func testStartupCleanupTriesRestoreWhenPersistedOwnershipExists() {
         let attemptedAt = Date(timeIntervalSince1970: 1_800_000_600)
         let record = ownedRecord()

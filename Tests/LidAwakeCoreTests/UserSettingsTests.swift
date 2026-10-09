@@ -40,17 +40,22 @@ final class UserSettingsTests: XCTestCase {
         XCTAssertFalse(settings.lockScreenWhenLidCloses)
     }
 
-    func testDecodesLegacyPauseDeadlineAsStopDeadline() throws {
-        let legacyDeadline = Date(timeIntervalSince1970: 1_800_000_000)
-        let data = Data("""
-        {
-          "pauseUntil": \(legacyDeadline.timeIntervalSinceReferenceDate)
+    func testLegacyPauseDeadlineIsNotTakenForAStopDeadline() throws {
+        // A pause meant "stay off until then", the opposite of a stop deadline,
+        // and an expired one would otherwise turn the app off after an update.
+        for legacyDeadline in [Date(timeIntervalSince1970: 1_000_000_000), Date(timeIntervalSince1970: 4_000_000_000)] {
+            let data = Data("""
+            {
+              "enabled": true,
+              "pauseUntil": \(legacyDeadline.timeIntervalSinceReferenceDate)
+            }
+            """.utf8)
+
+            let settings = try JSONDecoder().decode(UserSettings.self, from: data)
+
+            XCTAssertNil(settings.stopAt)
+            XCTAssertTrue(settings.enabled)
         }
-        """.utf8)
-
-        let settings = try JSONDecoder().decode(UserSettings.self, from: data)
-
-        XCTAssertEqual(settings.stopAt, legacyDeadline)
     }
 
     func testEncodesOnlyStopDeadline() throws {

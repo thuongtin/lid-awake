@@ -1,24 +1,42 @@
 import Foundation
 
 public enum PMSetError: LocalizedError, Equatable {
-    case launchFailed(String)
+    /// `pmset` exited and reported a failure.
     case commandFailed(Int32, String)
+    /// `pmset` was stopped before it exited, so it may have applied the change.
+    case timedOut(String)
 
     public var errorDescription: String? {
         switch self {
-        case let .launchFailed(message):
-            message
         case let .commandFailed(status, output):
             output.isEmpty ? "pmset failed with exit code \(status)." : output
+        case let .timedOut(output):
+            output
         }
     }
 }
 
 public struct PMSetService: Sendable {
-    public init() {}
+    public typealias ProcessRunning = @Sendable (String, [String], TimeInterval) -> ProcessResult
+
+    /// Reading settings normally takes milliseconds. The app reads on the main
+    /// actor, so a hung `pmset` must give up well before the app looks frozen.
+    public static let statusReadTimeout: TimeInterval = 2
+    /// Short enough for the helper to answer inside the app's XPC deadline.
+    public static let closedLidChangeTimeout: TimeInterval = 3
+
+    private let runProcess: ProcessRunning
+
+    public init(runProcess: @escaping ProcessRunning = { ProcessRunner.run($0, arguments: $1, timeout: $2) }) {
+        self.runProcess = runProcess
+    }
 
     public func readClosedLidStatus() -> ClosedLidStatus {
-        let current = runProcess("/usr/bin/pmset", arguments: ["-g"])
+        let current = runProcess("/usr/bin/pmset", ["-g"], Self.statusReadTimeout)
+        guard !current.timedOut else {
+            return .notReported
+        }
+
         if current.status == 0 {
             let status = Self.parseClosedLidStatus(from: current.output)
             if status != .notReported {
@@ -26,7 +44,7 @@ public struct PMSetService: Sendable {
             }
         }
 
-        let custom = runProcess("/usr/bin/pmset", arguments: ["-g", "custom"])
+        let custom = runProcess("/usr/bin/pmset", ["-g", "custom"], Self.statusReadTimeout)
         guard custom.status == 0 else {
             return .notReported
         }
@@ -36,7 +54,10 @@ public struct PMSetService: Sendable {
 
     public func setClosedLidMode(enabled: Bool) throws {
         let value = enabled ? "1" : "0"
-        let result = runProcess("/usr/bin/pmset", arguments: ["-a", "disablesleep", value])
+        let result = runProcess("/usr/bin/pmset", ["-a", "disablesleep", value], Self.closedLidChangeTimeout)
+        guard !result.timedOut else {
+            throw PMSetError.timedOut(result.output)
+        }
 
         guard result.status == 0, !Self.isPermissionFailureOutput(result.output) else {
             throw PMSetError.commandFailed(result.status, result.output)
@@ -66,31 +87,5 @@ public struct PMSetService: Sendable {
         }
 
         return .notReported
-    }
-
-    private func runProcess(_ executable: String, arguments: [String]) -> (status: Int32, output: String) {
-        let process = Process()
-        let stdout = Pipe()
-        let stderr = Pipe()
-
-        process.executableURL = URL(fileURLWithPath: executable)
-        process.arguments = arguments
-        process.standardOutput = stdout
-        process.standardError = stderr
-
-        do {
-            try process.run()
-            process.waitUntilExit()
-        } catch {
-            return (1, PMSetError.launchFailed(error.localizedDescription).localizedDescription)
-        }
-
-        let output = read(stdout) + read(stderr)
-        return (process.terminationStatus, output.trimmingCharacters(in: .whitespacesAndNewlines))
-    }
-
-    private func read(_ pipe: Pipe) -> String {
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        return String(data: data, encoding: .utf8) ?? ""
     }
 }

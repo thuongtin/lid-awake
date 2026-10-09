@@ -6,7 +6,6 @@ import Foundation
 enum ScreenLockError: LocalizedError, Equatable {
     case unavailable
     case accessibilityPermissionRequired
-    case launchFailed(String)
     case commandFailed(Int32, String)
 
     static let accessibilityPermissionMessage =
@@ -18,8 +17,6 @@ enum ScreenLockError: LocalizedError, Equatable {
             "No supported macOS screen lock command is available."
         case .accessibilityPermissionRequired:
             Self.accessibilityPermissionMessage
-        case let .launchFailed(message):
-            message
         case let .commandFailed(status, output):
             output.isEmpty ? "screen lock failed with exit code \(status)." : output
         }
@@ -69,7 +66,9 @@ final class CGEventScreenLockShortcutPoster: ScreenLockShortcutPosting {
     }
 
     func postLockScreenShortcut() throws {
-        guard Self.hasAccessibilityPermission(prompt: true) else {
+        // `AppModel` asks for Accessibility once per launch. Prompting here
+        // would queue a system dialog on every closed-lid lock attempt.
+        guard Self.hasAccessibilityPermission(prompt: false) else {
             throw ScreenLockError.accessibilityPermissionRequired
         }
 
@@ -125,48 +124,73 @@ struct SystemScreenLockPermissionChecker: ScreenLockPermissionChecking {
     }
 }
 
+/// Locks the screen without holding the caller on a lock command.
+///
+/// The command path runs on `blockingWork` and reports a failure later
+/// through `failureHandler`. The keyboard shortcut path only posts events, so
+/// it stays synchronous and still throws when Accessibility is missing.
 final class SystemScreenLockService: DeviceLocking {
-    private let shortcutPoster: ScreenLockShortcutPosting
+    static let commandTimeout: TimeInterval = 2
 
-    init(shortcutPoster: ScreenLockShortcutPosting = CGEventScreenLockShortcutPoster()) {
+    var failureHandler: (@MainActor (String) -> Void)?
+
+    private let shortcutPoster: ScreenLockShortcutPosting
+    private let resolveMethod: () -> ScreenLockMethod
+    private let blockingWork: BlockingWorkPerforming
+    private let runCommand: (ScreenLockCommand) -> ProcessResult
+    /// Touched only on the main actor, where requests start and finish.
+    private var isRunning = false
+
+    init(
+        shortcutPoster: ScreenLockShortcutPosting = CGEventScreenLockShortcutPoster(),
+        resolveMethod: @escaping () -> ScreenLockMethod = { ScreenLockCommandResolver.resolve() },
+        blockingWork: BlockingWorkPerforming = BackgroundBlockingWork(label: "com.thuongtin.LidAwake.screen-lock"),
+        runCommand: @escaping (ScreenLockCommand) -> ProcessResult = { command in
+            ProcessRunner.run(
+                command.executablePath,
+                arguments: command.arguments,
+                timeout: SystemScreenLockService.commandTimeout
+            )
+        }
+    ) {
         self.shortcutPoster = shortcutPoster
+        self.resolveMethod = resolveMethod
+        self.blockingWork = blockingWork
+        self.runCommand = runCommand
     }
 
     func lockScreenNow() throws {
-        switch ScreenLockCommandResolver.resolve() {
+        switch resolveMethod() {
         case let .command(command):
-            try run(command)
+            run(command)
         case .keyboardShortcut:
             try shortcutPoster.postLockScreenShortcut()
         }
     }
 
-    private func run(_ command: ScreenLockCommand) throws {
-        let process = Process()
-        let stdout = Pipe()
-        let stderr = Pipe()
-
-        process.executableURL = URL(fileURLWithPath: command.executablePath)
-        process.arguments = command.arguments
-        process.standardOutput = stdout
-        process.standardError = stderr
-
-        do {
-            try process.run()
-            process.waitUntilExit()
-        } catch {
-            throw ScreenLockError.launchFailed(error.localizedDescription)
+    private func run(_ command: ScreenLockCommand) {
+        guard !isRunning else {
+            return
         }
 
-        let output = read(stdout) + read(stderr)
-        let trimmedOutput = output.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard process.terminationStatus == 0 else {
-            throw ScreenLockError.commandFailed(process.terminationStatus, trimmedOutput)
-        }
-    }
+        isRunning = true
+        let runCommand = runCommand
+        blockingWork.perform({
+            runCommand(command)
+        }, then: { [weak self] result in
+            guard let self else {
+                return
+            }
 
-    private func read(_ pipe: Pipe) -> String {
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        return String(data: data, encoding: .utf8) ?? ""
+            isRunning = false
+            guard result.timedOut || result.status != 0 else {
+                return
+            }
+
+            let error: ScreenLockError = result.timedOut
+                ? .commandFailed(result.status, "The screen lock command did not finish in time.")
+                : .commandFailed(result.status, result.output)
+            failureHandler?(error.localizedDescription)
+        })
     }
 }

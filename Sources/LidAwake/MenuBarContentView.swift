@@ -44,6 +44,16 @@ struct MenuBarContentView: View {
                         .font(.callout)
                         .foregroundStyle(.secondary)
                         .lineLimit(2)
+
+                    if let stopAt = model.settings.stopAt {
+                        Label(
+                            "Stops at \(stopAt.formatted(date: .omitted, time: .shortened))",
+                            systemImage: "stopwatch"
+                        )
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .contentTransition(.numericText())
+                    }
                 }
 
                 Spacer()

@@ -14,6 +14,31 @@ final class HelperService: NSObject, NSXPCListenerDelegate, LidAwakeHelperXPCPro
         let info = try? SecurityCodeSigningInfoProvider().currentProcessCodeSigningInfo()
         return HelperCodeSigningRequirement.requirement(teamIdentifier: info?.teamIdentifier)
     }()
+    /// Every connection gets its own queue, so without this two requests could
+    /// run `pmset` at once and finish in either order. The watchdog relies on it
+    /// too: it is only touched from here.
+    private let commandQueue = DispatchQueue(label: "\(LidAwakeHelperConstants.machServiceName).commands")
+    private lazy var restoreWatchdog = ClosedLidRestoreWatchdog(
+        restore: { [pmsetService, logger] in
+            do {
+                try pmsetService.setClosedLidMode(enabled: false)
+                logger.notice("Restored closed-lid mode after the client exited without restoring it")
+                return true
+            } catch {
+                logger.error("Could not restore closed-lid mode after the client exited, will retry: \(error.localizedDescription, privacy: .public)")
+                return false
+            }
+        },
+        readClosedLidStatus: { [pmsetService] in
+            pmsetService.readClosedLidStatus()
+        },
+        watchProcessExit: { [commandQueue] processID, handler in
+            DispatchProcessExitWatch(processID: processID, queue: commandQueue, handler: handler)
+        },
+        scheduleRetry: { [commandQueue] delay, work in
+            commandQueue.asyncAfter(deadline: .now() + delay, execute: work)
+        }
+    )
 
     func listener(_ listener: NSXPCListener, shouldAcceptNewConnection connection: NSXPCConnection) -> Bool {
         let processID = connection.processIdentifier
@@ -41,11 +66,25 @@ final class HelperService: NSObject, NSXPCListenerDelegate, LidAwakeHelperXPCPro
     }
 
     func setClosedLidMode(enabled: Bool, reply: @escaping (Bool, String?) -> Void) {
-        do {
-            try pmsetService.setClosedLidMode(enabled: enabled)
-            reply(true, nil)
-        } catch {
-            reply(false, error.localizedDescription)
+        // Only valid while this call is being delivered, so read it before
+        // hopping queues. It names the client the accept-time checks approved.
+        let clientProcessID = NSXPCConnection.current()?.processIdentifier
+        commandQueue.async { [self] in
+            var changeError: Error?
+            do {
+                try pmsetService.setClosedLidMode(enabled: enabled)
+            } catch {
+                changeError = error
+            }
+
+            if let clientProcessID {
+                restoreWatchdog.closedLidModeChangeAttempted(
+                    enabled: enabled,
+                    outcome: ClosedLidModeChangeOutcome(error: changeError),
+                    clientProcessID: clientProcessID
+                )
+            }
+            reply(changeError == nil, changeError?.localizedDescription)
         }
     }
 }

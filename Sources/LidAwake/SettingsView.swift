@@ -133,6 +133,18 @@ struct SettingsView: View {
                         systemImage: "exclamationmark.triangle"
                     )
                 }
+
+                if model.launchAtLoginNeedsApproval {
+                    Divider()
+                    InfoLine(
+                        title: "Needs approval",
+                        value: "Allow Lid Awake in System Settings > General > Login Items so it can start when you sign in.",
+                        systemImage: "exclamationmark.triangle"
+                    )
+                    Button("Open Login Items") {
+                        model.openLoginItemsSettings()
+                    }
+                }
             }
         }
     }
@@ -266,12 +278,15 @@ struct SettingsView: View {
                         SmoothButton(model.closedLidPrimaryActionTitle, systemImage: "lock.shield") {
                             model.performClosedLidHelperAction()
                         }
-                        .disabled(model.closedLidHelperStatus == .enabled && !model.shouldOfferClosedLidHelperRepair)
+                        .disabled(
+                            (model.closedLidHelperStatus == .enabled && !model.shouldOfferClosedLidHelperRepair)
+                                || model.isChangingClosedLidMode
+                        )
 
                         SmoothButton("Remove", systemImage: "trash") {
                             model.removeClosedLidHelper()
                         }
-                        .disabled(model.closedLidHelperStatus == .notRegistered)
+                        .disabled(model.closedLidHelperStatus == .notRegistered || model.isChangingClosedLidMode)
                     }
 
                     if model.isChangingClosedLidMode {
