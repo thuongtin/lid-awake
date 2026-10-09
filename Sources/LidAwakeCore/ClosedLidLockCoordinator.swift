@@ -23,6 +23,12 @@ public final class ClosedLidLockCoordinator {
     private var lastClamshellState: ClamshellState?
     /// Updates seen since a lock request, while it is still unconfirmed.
     private var updatesSinceLockRequest: Int?
+    private var isActingOnClosure = false
+
+    /// Changes whenever a lid closure the coordinator acts on starts or ends,
+    /// so a lock command that fails after its closure ended can be told apart
+    /// from one that failed for the current closure.
+    public private(set) var lidClosureID = 0
 
     /// - Parameter screenLockStateReader: When set, a lock request that has not
     ///   locked the screen after `lockVerificationUpdates` more updates is
@@ -49,12 +55,14 @@ public final class ClosedLidLockCoordinator {
         lastClamshellState = clamshellState
 
         guard clamshellState == .closed else {
+            endClosure()
             lockRequestCount = 0
             updatesSinceLockRequest = nil
             return .none
         }
 
         guard settings.enabled, settings.lockScreenWhenLidCloses else {
+            endClosure()
             lockRequestCount = maximumLockRequests
             updatesSinceLockRequest = nil
             return .none
@@ -66,9 +74,13 @@ public final class ClosedLidLockCoordinator {
         }
 
         if previousClamshellState == .open {
+            endClosure()
+            isActingOnClosure = true
+            lidClosureID &+= 1
             lockRequestCount = 0
             updatesSinceLockRequest = nil
         } else if previousClamshellState != .closed {
+            endClosure()
             lockRequestCount = maximumLockRequests
             return .none
         }
@@ -101,8 +113,18 @@ public final class ClosedLidLockCoordinator {
     /// stops calling `update`. A lid that closed in that stretch is then not
     /// taken for a close the user just made.
     public func forgetLidState() {
+        endClosure()
         lastClamshellState = nil
         updatesSinceLockRequest = nil
+    }
+
+    private func endClosure() {
+        guard isActingOnClosure else {
+            return
+        }
+
+        isActingOnClosure = false
+        lidClosureID &+= 1
     }
 
     private func verifyLock(updatesSoFar: Int) -> ClosedLidLockAction {

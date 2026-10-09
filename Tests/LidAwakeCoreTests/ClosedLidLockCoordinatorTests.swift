@@ -41,6 +41,35 @@ final class ClosedLidLockCoordinatorTests: XCTestCase {
         XCTAssertEqual(deviceLocker.lockCount, 1)
     }
 
+    func testLidClosureIDChangesOnlyWhenAClosureStartsOrEnds() {
+        let clamshellStateReader = FakeLockClamshellStateReader(state: .open)
+        let coordinator = ClosedLidLockCoordinator(
+            clamshellStateReader: clamshellStateReader,
+            deviceLocker: FakeDeviceLocker()
+        )
+        var settings = UserSettings.defaults
+        settings.lockScreenWhenLidCloses = true
+
+        coordinator.update(settings: settings)
+        let openID = coordinator.lidClosureID
+        coordinator.update(settings: settings)
+        XCTAssertEqual(coordinator.lidClosureID, openID)
+
+        clamshellStateReader.state = .closed
+        coordinator.update(settings: settings)
+        let closedID = coordinator.lidClosureID
+        coordinator.update(settings: settings)
+        XCTAssertNotEqual(closedID, openID)
+        XCTAssertEqual(coordinator.lidClosureID, closedID)
+
+        coordinator.forgetLidState()
+        XCTAssertNotEqual(coordinator.lidClosureID, closedID)
+        let forgottenID = coordinator.lidClosureID
+        coordinator.update(settings: settings)
+        coordinator.forgetLidState()
+        XCTAssertEqual(coordinator.lidClosureID, forgottenID)
+    }
+
     func testDoesNotLockWhenStateMovesFromUnavailableToClosed() {
         let clamshellStateReader = FakeLockClamshellStateReader(state: .unavailable)
         let deviceLocker = FakeDeviceLocker()

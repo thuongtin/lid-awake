@@ -1200,6 +1200,34 @@ final class AppModelLifecycleTests: XCTestCase {
         XCTAssertEqual(harness.deviceLocker.lockCount, 1)
     }
 
+    func testScreenLockFailureFromAnEndedLidClosureIsIgnored() async {
+        let harness = AppModelHarness(
+            settings: UserSettings(enabled: true, lockScreenWhenLidCloses: true),
+            helperStatus: .enabled,
+            closedLidStatus: .enabled
+        )
+        harness.lockClamshellReader.state = .open
+        harness.model.start(scheduleTimers: false)
+        await drainMainQueue()
+        harness.lockClamshellReader.state = .closed
+        harness.model.evaluate()
+        await drainMainQueue()
+        XCTAssertEqual(harness.deviceLocker.lockCount, 1)
+
+        // The command for this closure is still running as the lid opens.
+        harness.lockClamshellReader.state = .open
+        harness.model.evaluate()
+        await drainMainQueue()
+        harness.model.reportClosedLidLockFailure("Screen lock failed.")
+        XCTAssertNil(harness.model.closedLidLockError)
+
+        harness.lockClamshellReader.state = .closed
+        harness.model.evaluate()
+        await drainMainQueue()
+        harness.model.reportClosedLidLockFailure("Screen lock failed.")
+        XCTAssertEqual(harness.model.closedLidLockError, "Screen lock failed.")
+    }
+
     func testAccessibilityPromptIsShownAtMostOncePerLaunch() async {
         let harness = AppModelHarness(
             settings: UserSettings(enabled: true, lockScreenWhenLidCloses: true),

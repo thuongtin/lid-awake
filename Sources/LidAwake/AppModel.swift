@@ -163,6 +163,8 @@ final class AppModel: ObservableObject {
     private var didPromptForScreenLockAccessibility = false
     /// The lid closure the last display sleep command was started for.
     private var displaySleepRequestLidClosureID: Int?
+    /// The lid closure the last screen lock command was started for.
+    private var lockRequestLidClosureID: Int?
     private let closedLidVerifyInterval: TimeInterval = 30
 
     private var appEnabledClosedLidMode: Bool {
@@ -1526,6 +1528,7 @@ final class AppModel: ObservableObject {
             break
         case .requestedLock:
             closedLidLockError = nil
+            lockRequestLidClosureID = closedLidLockCoordinator.lidClosureID
             logger.info("requested screen lock for closed lid")
         case let .failed(message):
             closedLidLockError = message
@@ -1569,6 +1572,13 @@ final class AppModel: ObservableObject {
 
     /// A screen lock command that failed after the coordinator handed it off.
     func reportClosedLidLockFailure(_ message: String) {
+        // Same as display sleep: the coordinator stops acting once the lid
+        // opens, an external display takes over, or Keep Awake turns off.
+        guard lockRequestLidClosureID == closedLidLockCoordinator.lidClosureID else {
+            logger.info("ignored screen lock failure from a lid closure that already ended")
+            return
+        }
+
         closedLidLockError = message
         logger.error("screen lock request failed message=\(message, privacy: .public)")
     }
