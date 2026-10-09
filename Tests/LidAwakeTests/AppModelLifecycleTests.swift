@@ -1637,7 +1637,8 @@ final class ClosedLidHelperRemovalTests: XCTestCase {
         XCTAssertThrowsError(try ClosedLidHelperRemoval.removeHelper(
             helperService: helper,
             statusReader: statusReader,
-            ownershipStore: ownershipStore
+            ownershipStore: ownershipStore,
+            appIsRunning: false
         ))
 
         XCTAssertEqual(helper.setClosedLidModeRequests, [false])
@@ -1653,8 +1654,63 @@ final class ClosedLidHelperRemovalTests: XCTestCase {
         XCTAssertThrowsError(try ClosedLidHelperRemoval.removeHelper(
             helperService: helper,
             statusReader: statusReader,
-            ownershipStore: ownershipStore
+            ownershipStore: ownershipStore,
+            appIsRunning: false
         ))
+
+        XCTAssertTrue(helper.setClosedLidModeRequests.isEmpty)
+        XCTAssertEqual(helper.unregisterCallCount, 0)
+        XCTAssertEqual(ownershipStore.record?.ownedByThisApp, true)
+    }
+
+    func testRemovalRestoresEvenWhenTheModeReadsAsOff() throws {
+        // An enable the app already sent can still be queued in the helper.
+        let helper = FakeClosedLidHelperService(status: .enabled)
+        let statusReader = FakeClosedLidStatusReader(status: .disabled)
+        let ownershipStore = FakeClosedLidOwnershipStore(record: ownedRecord())
+
+        try ClosedLidHelperRemoval.removeHelper(
+            helperService: helper,
+            statusReader: statusReader,
+            ownershipStore: ownershipStore,
+            appIsRunning: false
+        )
+
+        XCTAssertEqual(helper.setClosedLidModeRequests, [false])
+        XCTAssertEqual(helper.unregisterCallCount, 1)
+        XCTAssertNil(ownershipStore.record)
+    }
+
+    func testRemovalClearsOwnershipWhenAHelperThatCannotChangeTheModeReadsOff() throws {
+        let helper = FakeClosedLidHelperService(status: .requiresApproval)
+        let statusReader = FakeClosedLidStatusReader(status: .disabled)
+        let ownershipStore = FakeClosedLidOwnershipStore(record: ownedRecord())
+
+        try ClosedLidHelperRemoval.removeHelper(
+            helperService: helper,
+            statusReader: statusReader,
+            ownershipStore: ownershipStore,
+            appIsRunning: false
+        )
+
+        XCTAssertTrue(helper.setClosedLidModeRequests.isEmpty)
+        XCTAssertEqual(helper.unregisterCallCount, 1)
+        XCTAssertNil(ownershipStore.record)
+    }
+
+    func testRemovalIsRefusedWhileTheAppIsRunning() {
+        let helper = FakeClosedLidHelperService(status: .enabled)
+        let statusReader = FakeClosedLidStatusReader(status: .enabled)
+        let ownershipStore = FakeClosedLidOwnershipStore(record: ownedRecord())
+
+        XCTAssertThrowsError(try ClosedLidHelperRemoval.removeHelper(
+            helperService: helper,
+            statusReader: statusReader,
+            ownershipStore: ownershipStore,
+            appIsRunning: true
+        )) { error in
+            XCTAssertEqual(error as? ClosedLidHelperRemovalError, .appIsRunning)
+        }
 
         XCTAssertTrue(helper.setClosedLidModeRequests.isEmpty)
         XCTAssertEqual(helper.unregisterCallCount, 0)
@@ -1669,7 +1725,8 @@ final class ClosedLidHelperRemovalTests: XCTestCase {
         try ClosedLidHelperRemoval.removeHelper(
             helperService: helper,
             statusReader: statusReader,
-            ownershipStore: ownershipStore
+            ownershipStore: ownershipStore,
+            appIsRunning: false
         )
 
         XCTAssertTrue(helper.setClosedLidModeRequests.isEmpty)
@@ -1850,6 +1907,9 @@ private final class FakeClosedLidHelperService: ClosedLidHelperServicing {
     var onSetClosedLidMode: ((Bool) -> Void)?
     var setClosedLidModeResult: Result<Void, Error> = .success(())
     var shouldReplyToSetClosedLidMode = true
+    /// Makes every change fail as unanswered until a repair registers the
+    /// helper again, the way a helper that needs repair behaves.
+    var isUnreachableUntilRepair = false
     var probeConnectionResult: Result<Void, ClosedLidHelperFailure> = .success(())
     var shouldReplyToProbeConnection = true
     private(set) var pendingProbeReply: ((Result<Void, ClosedLidHelperFailure>) -> Void)?

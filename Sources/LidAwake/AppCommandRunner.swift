@@ -1,5 +1,11 @@
+import AppKit
 import LidAwakeCore
-import Foundation
+
+private struct HelperRepairWhileAppRunsError: LocalizedError {
+    var errorDescription: String? {
+        "Lid Awake is running. Quit it first, or repair the helper from Lid Awake Settings."
+    }
+}
 
 enum AppCommandRunner {
     static func runIfNeeded(arguments: [String] = CommandLine.arguments) {
@@ -13,13 +19,19 @@ enum AppCommandRunner {
             let helperService = ClosedLidHelperService()
             switch command {
             case "--helper-repair":
+                // A repair stops the helper's restore watchdog, and a running
+                // app would never learn that it needs to arm the new one.
+                guard !isAnotherCopyRunning() else {
+                    throw HelperRepairWhileAppRunsError()
+                }
                 try repairRegistration(helperService: helperService)
                 print(helperService.status.displayText)
             case "--helper-remove":
                 try ClosedLidHelperRemoval.removeHelper(
                     helperService: helperService,
                     statusReader: PMSetService(),
-                    ownershipStore: UserDefaultsClosedLidOwnershipStore()
+                    ownershipStore: UserDefaultsClosedLidOwnershipStore(),
+                    appIsRunning: isAnotherCopyRunning()
                 )
                 print(helperService.status.displayText)
             case "--helper-status":
@@ -48,6 +60,16 @@ enum AppCommandRunner {
             RunLoop.main.run(until: Date().addingTimeInterval(0.05))
         }
         try result?.get()
+    }
+
+    private static func isAnotherCopyRunning() -> Bool {
+        guard let bundleIdentifier = Bundle.main.bundleIdentifier else {
+            return false
+        }
+
+        let currentProcessID = ProcessInfo.processInfo.processIdentifier
+        return NSRunningApplication.runningApplications(withBundleIdentifier: bundleIdentifier)
+            .contains { $0.processIdentifier != currentProcessID }
     }
 
     private static func printScreenLockStatus() {
