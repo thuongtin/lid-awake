@@ -779,7 +779,8 @@ final class AppModel: ObservableObject {
     /// first closes that window whenever the current helper still answers, and
     /// the repair turns it back on through the new helper. A helper that does
     /// not answer could not restore after a crash either, so the repair then
-    /// goes ahead as it would have.
+    /// goes ahead as it would have. One that answers but could not turn the
+    /// mode off still has a working watchdog, so the repair stops there.
     private func restoreClosedLidModeBeforeRepair(then continueRepair: @escaping @MainActor () -> Void) {
         guard appEnabledClosedLidMode, closedLidHelperStatus.canControlClosedLidMode else {
             continueRepair()
@@ -788,22 +789,46 @@ final class AppModel: ObservableObject {
 
         closedLidHelperService.setClosedLidMode(enabled: false) { [weak self] result in
             DispatchQueue.main.async {
-                self?.finishRestoreBeforeRepair(result: result)
+                guard let self, self.finishRestoreBeforeRepair(result: result) else {
+                    return
+                }
+
                 continueRepair()
             }
         }
     }
 
-    private func finishRestoreBeforeRepair(result: Result<Void, Error>) {
+    /// Returns whether the repair should go on to replace the helper.
+    private func finishRestoreBeforeRepair(result: Result<Void, Error>) -> Bool {
         switch result {
         case .success:
             logger.info("restored closed-lid mode before repairing the helper")
             saveClosedLidOwnershipRecord(nil)
             closedLidStatus = .disabled
             suppressedClosedLidTarget = nil
+            return true
         case let .failure(error):
             logger.error("closed-lid restore before repair failed error=\(error.localizedDescription, privacy: .public)")
+            guard (error as? ClosedLidHelperFailure)?.isRecoverableByRepair == true else {
+                abortRepairingClosedLidHelper(restoreError: error)
+                return false
+            }
+
+            return true
         }
+    }
+
+    private func abortRepairingClosedLidHelper(restoreError: Error) {
+        isChangingClosedLidMode = false
+        isRepairingClosedLidHelper = false
+        guard !isTerminating else {
+            let restore = terminationRestoreAfterRepair
+            terminationRestoreAfterRepair = nil
+            restore?()
+            return
+        }
+
+        closedLidError = "Lid Awake Helper could not turn closed-lid mode off before the repair, so it was not repaired: \(closedLidUserFacingError(from: restoreError))"
     }
 
     private func registerClosedLidHelperForRepair() {

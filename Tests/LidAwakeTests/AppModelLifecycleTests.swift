@@ -489,6 +489,33 @@ final class AppModelLifecycleTests: XCTestCase {
         XCTAssertEqual(harness.ownershipStore.record?.ownedByThisApp, true)
     }
 
+    func testRepairStopsWhenTheAnsweringHelperCannotRestoreFirst() async {
+        let harness = AppModelHarness(
+            settings: UserSettings(enabled: true),
+            helperStatus: .enabled,
+            closedLidStatus: .disabled
+        )
+        harness.helper.onSetClosedLidMode = { enabled in
+            if enabled {
+                harness.closedLidStatusReader.status = .enabled
+            }
+        }
+        harness.model.start(scheduleTimers: false)
+        await drainMainQueue()
+        harness.helper.setClosedLidModeResult = .failure(ClosedLidHelperFailure.commandFailed("pmset refused."))
+
+        harness.model.repairClosedLidHelper()
+        await drainMainQueue()
+
+        // The helper answered, so its watchdog still covers the app, and
+        // unregistering it would leave the mode on with nothing watching.
+        XCTAssertEqual(harness.helper.repairRegistrationCallCount, 0)
+        XCTAssertEqual(harness.helper.setClosedLidModeRequests, [true, false])
+        XCTAssertFalse(harness.model.isChangingClosedLidMode)
+        XCTAssertEqual(harness.ownershipStore.record?.ownedByThisApp, true)
+        XCTAssertTrue(harness.model.closedLidError?.contains("pmset refused.") == true)
+    }
+
     func testRepairLeavesClosedLidModeOffWhenTheRegistrationFails() async {
         let harness = AppModelHarness(
             settings: UserSettings(enabled: true),
