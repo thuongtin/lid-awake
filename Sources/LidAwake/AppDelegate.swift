@@ -42,7 +42,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         isPreparingToTerminate = true
         logger.info("applicationShouldTerminate")
         model.prepareForTermination {
-            sender.reply(toApplicationShouldTerminate: true)
+            // AppKit only waits for a reply after this method has returned
+            // `.terminateLater`, and preparing can finish before that.
+            DispatchQueue.main.async {
+                sender.reply(toApplicationShouldTerminate: true)
+            }
         }
         return .terminateLater
     }
