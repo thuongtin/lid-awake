@@ -764,13 +764,52 @@ final class AppModel: ObservableObject {
 
         closedLidHelperRemovalRequested = false
         closedLidRetryNotBefore = nil
-        // Unregistering stops the helper process, and the restore watchdog it
-        // ran, whether or not the new registration then succeeds.
-        closedLidRestoreWatchdogArmed = false
         // Held until macOS settles the registration, the same way a removal
         // holds it, so no change reaches a helper that is being replaced.
         isChangingClosedLidMode = true
         isRepairingClosedLidHelper = true
+        restoreClosedLidModeBeforeRepair { [weak self] in
+            self?.registerClosedLidHelperForRepair()
+        }
+    }
+
+    /// Unregistering stops the helper and the restore watchdog it runs, and
+    /// the new registration takes seconds, so a crash in between would leave
+    /// owned closed-lid mode on with nothing watching. Turning the mode off
+    /// first closes that window whenever the current helper still answers, and
+    /// the repair turns it back on through the new helper. A helper that does
+    /// not answer could not restore after a crash either, so the repair then
+    /// goes ahead as it would have.
+    private func restoreClosedLidModeBeforeRepair(then continueRepair: @escaping @MainActor () -> Void) {
+        guard appEnabledClosedLidMode, closedLidHelperStatus.canControlClosedLidMode else {
+            continueRepair()
+            return
+        }
+
+        closedLidHelperService.setClosedLidMode(enabled: false) { [weak self] result in
+            DispatchQueue.main.async {
+                self?.finishRestoreBeforeRepair(result: result)
+                continueRepair()
+            }
+        }
+    }
+
+    private func finishRestoreBeforeRepair(result: Result<Void, Error>) {
+        switch result {
+        case .success:
+            logger.info("restored closed-lid mode before repairing the helper")
+            saveClosedLidOwnershipRecord(nil)
+            closedLidStatus = .disabled
+            suppressedClosedLidTarget = nil
+        case let .failure(error):
+            logger.error("closed-lid restore before repair failed error=\(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    private func registerClosedLidHelperForRepair() {
+        // Unregistering stops the helper process, and the restore watchdog it
+        // ran, whether or not the new registration then succeeds.
+        closedLidRestoreWatchdogArmed = false
         closedLidHelperService.repairRegistration { [weak self] result in
             DispatchQueue.main.async {
                 self?.finishRepairingClosedLidHelper(result: result)
