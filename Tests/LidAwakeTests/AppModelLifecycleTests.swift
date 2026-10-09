@@ -1823,6 +1823,167 @@ final class ClosedLidHelperRemovalTests: XCTestCase {
     }
 }
 
+final class ClosedLidHelperRepairTests: XCTestCase {
+    private func repair(
+        _ helper: FakeClosedLidHelperService,
+        statusReader: FakeClosedLidStatusReader,
+        ownershipStore: FakeClosedLidOwnershipStore,
+        appIsRunning: Bool = false
+    ) throws {
+        try ClosedLidHelperRemoval.repairHelper(
+            helperService: helper,
+            statusReader: statusReader,
+            ownershipStore: ownershipStore,
+            appIsRunning: appIsRunning
+        ) {
+            var result: Result<Void, Error>?
+            helper.repairRegistration { result = $0 }
+            try XCTUnwrap(result).get()
+        }
+    }
+
+    func testRepairRestoresOwnedClosedLidModeThroughTheOldHelperFirst() throws {
+        // The app that owned the mode is gone, and the old helper may still be
+        // retrying its restore.
+        let helper = FakeClosedLidHelperService(status: .enabled)
+        let statusReader = FakeClosedLidStatusReader(status: .enabled)
+        let ownershipStore = FakeClosedLidOwnershipStore(record: ownedRecord())
+        helper.onSetClosedLidMode = { enabled in
+            statusReader.status = enabled ? .enabled : .disabled
+        }
+
+        try repair(helper, statusReader: statusReader, ownershipStore: ownershipStore)
+
+        XCTAssertEqual(helper.setClosedLidModeRequests, [false])
+        XCTAssertEqual(helper.repairRegistrationCallCount, 1)
+        XCTAssertEqual(statusReader.status, .disabled)
+        XCTAssertNil(ownershipStore.record)
+    }
+
+    func testRepairRestoresThroughTheNewHelperWhenTheOldOneDoesNotAnswer() throws {
+        let helper = FakeClosedLidHelperService(status: .enabled)
+        let statusReader = FakeClosedLidStatusReader(status: .enabled)
+        let ownershipStore = FakeClosedLidOwnershipStore(record: ownedRecord())
+        helper.isUnreachableUntilRepair = true
+        helper.onSetClosedLidMode = { enabled in
+            statusReader.status = enabled ? .enabled : .disabled
+        }
+
+        try repair(helper, statusReader: statusReader, ownershipStore: ownershipStore)
+
+        XCTAssertEqual(helper.setClosedLidModeRequests, [false, false])
+        XCTAssertEqual(helper.repairRegistrationCallCount, 1)
+        XCTAssertEqual(statusReader.status, .disabled)
+        XCTAssertNil(ownershipStore.record)
+    }
+
+    func testRepairStopsWhenTheAnsweringHelperCannotRestore() {
+        let helper = FakeClosedLidHelperService(status: .enabled)
+        let statusReader = FakeClosedLidStatusReader(status: .enabled)
+        let ownershipStore = FakeClosedLidOwnershipStore(record: ownedRecord())
+        helper.setClosedLidModeResult = .failure(ClosedLidHelperFailure.commandFailed("pmset refused."))
+
+        XCTAssertThrowsError(try repair(helper, statusReader: statusReader, ownershipStore: ownershipStore))
+
+        XCTAssertEqual(helper.repairRegistrationCallCount, 0)
+        XCTAssertEqual(ownershipStore.record?.ownedByThisApp, true)
+    }
+
+    func testRepairReportsAModeTheNewHelperCouldNotRestore() {
+        let helper = FakeClosedLidHelperService(status: .enabled)
+        let statusReader = FakeClosedLidStatusReader(status: .enabled)
+        let ownershipStore = FakeClosedLidOwnershipStore(record: ownedRecord())
+        helper.isUnreachableUntilRepair = true
+        helper.setClosedLidModeResult = .failure(ClosedLidHelperFailure.commandFailed("pmset refused."))
+
+        XCTAssertThrowsError(try repair(helper, statusReader: statusReader, ownershipStore: ownershipStore))
+
+        // The next launch picks the restore up from the kept record.
+        XCTAssertEqual(helper.repairRegistrationCallCount, 1)
+        XCTAssertEqual(helper.setClosedLidModeRequests, [false, false])
+        XCTAssertEqual(ownershipStore.record?.ownedByThisApp, true)
+    }
+
+    func testRepairWithoutOwnershipOnlyRegistersAgain() throws {
+        let helper = FakeClosedLidHelperService(status: .enabled)
+        let statusReader = FakeClosedLidStatusReader(status: .enabled)
+        let ownershipStore = FakeClosedLidOwnershipStore()
+
+        try repair(helper, statusReader: statusReader, ownershipStore: ownershipStore)
+
+        XCTAssertTrue(helper.setClosedLidModeRequests.isEmpty)
+        XCTAssertEqual(helper.repairRegistrationCallCount, 1)
+    }
+
+    func testRepairIsRefusedWhileTheAppIsRunning() {
+        let helper = FakeClosedLidHelperService(status: .enabled)
+        let statusReader = FakeClosedLidStatusReader(status: .enabled)
+        let ownershipStore = FakeClosedLidOwnershipStore(record: ownedRecord())
+
+        XCTAssertThrowsError(try repair(
+            helper,
+            statusReader: statusReader,
+            ownershipStore: ownershipStore,
+            appIsRunning: true
+        )) { error in
+            XCTAssertEqual(error as? ClosedLidHelperRemovalError, .appIsRunningForRepair)
+        }
+
+        XCTAssertTrue(helper.setClosedLidModeRequests.isEmpty)
+        XCTAssertEqual(helper.repairRegistrationCallCount, 0)
+    }
+}
+
+final class AppInstanceLockTests: XCTestCase {
+    private var lockURL: URL!
+
+    override func setUpWithError() throws {
+        lockURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+            .appendingPathComponent("app-instance.lock")
+    }
+
+    override func tearDownWithError() throws {
+        try? FileManager.default.removeItem(at: lockURL.deletingLastPathComponent())
+    }
+
+    private func acquire(_ mode: AppInstanceLock.Mode, waitingUpTo timeout: TimeInterval = 0) -> AppInstanceLock? {
+        guard case let .acquired(lock) = AppInstanceLock.acquire(mode, at: lockURL, waitingUpTo: timeout) else {
+            return nil
+        }
+
+        return lock
+    }
+
+    func testRunningCopiesShareTheLockAndKeepACommandOut() {
+        let first = acquire(.shared)
+        let second = acquire(.shared)
+        XCTAssertNotNil(first)
+        XCTAssertNotNil(second)
+
+        guard case .busy = AppInstanceLock.acquire(.exclusive, at: lockURL) else {
+            return XCTFail("a command took the lock while the app held it")
+        }
+
+        withExtendedLifetime((first, second)) {}
+    }
+
+    func testACommandKeepsACopyOutUntilItFinishes() {
+        var command = acquire(.exclusive)
+        XCTAssertNotNil(command)
+        guard case .busy = AppInstanceLock.acquire(.shared, at: lockURL, waitingUpTo: 0.2) else {
+            return XCTFail("the app took the lock while a command held it")
+        }
+
+        DispatchQueue.global().asyncAfter(deadline: .now() + 0.2) {
+            command = nil
+        }
+
+        XCTAssertNotNil(acquire(.shared, waitingUpTo: 5))
+        withExtendedLifetime(command) {}
+    }
+}
+
 private final class AppModelHarness {
     let settingsStore: FakeSettingsStore
     let ownershipStore: FakeClosedLidOwnershipStore

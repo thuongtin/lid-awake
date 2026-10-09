@@ -1,13 +1,10 @@
 import AppKit
 import LidAwakeCore
 
-private struct HelperRepairWhileAppRunsError: LocalizedError {
-    var errorDescription: String? {
-        "Lid Awake is running. Quit it first, or repair the helper from Lid Awake Settings."
-    }
-}
-
 enum AppCommandRunner {
+    /// Held until the command exits, so no copy of the app starts meanwhile.
+    private static var instanceLock: AppInstanceLock?
+
     static func runIfNeeded(arguments: [String] = CommandLine.arguments) {
         guard let command = arguments.dropFirst().first(where: { argument in
             argument.hasPrefix("--helper-") || argument.hasPrefix("--screen-lock-")
@@ -21,17 +18,21 @@ enum AppCommandRunner {
             case "--helper-repair":
                 // A repair stops the helper's restore watchdog, and a running
                 // app would never learn that it needs to arm the new one.
-                guard !isAnotherCopyRunning() else {
-                    throw HelperRepairWhileAppRunsError()
+                try ClosedLidHelperRemoval.repairHelper(
+                    helperService: helperService,
+                    statusReader: PMSetService(),
+                    ownershipStore: UserDefaultsClosedLidOwnershipStore(),
+                    appIsRunning: lockOutAppCopies()
+                ) {
+                    try repairRegistration(helperService: helperService)
                 }
-                try repairRegistration(helperService: helperService)
                 print(helperService.status.displayText)
             case "--helper-remove":
                 try ClosedLidHelperRemoval.removeHelper(
                     helperService: helperService,
                     statusReader: PMSetService(),
                     ownershipStore: UserDefaultsClosedLidOwnershipStore(),
-                    appIsRunning: isAnotherCopyRunning()
+                    appIsRunning: lockOutAppCopies()
                 )
                 print(helperService.status.displayText)
             case "--helper-status":
@@ -60,6 +61,22 @@ enum AppCommandRunner {
             RunLoop.main.run(until: Date().addingTimeInterval(0.05))
         }
         try result?.get()
+    }
+
+    /// Reports whether a copy of the app is running, and otherwise keeps one
+    /// from starting until this process exits.
+    private static func lockOutAppCopies() -> Bool {
+        switch AppInstanceLock.acquire(.exclusive) {
+        case let .acquired(lock):
+            instanceLock = lock
+        case .busy:
+            return true
+        case let .unavailable(message):
+            fputs("Could not hold off Lid Awake while changing the helper: \(message)\n", stderr)
+        }
+
+        // Copies built before the lock existed never take it.
+        return isAnotherCopyRunning()
     }
 
     private static func isAnotherCopyRunning() -> Bool {

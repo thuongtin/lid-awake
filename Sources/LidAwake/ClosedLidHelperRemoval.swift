@@ -4,6 +4,7 @@ import Foundation
 enum ClosedLidHelperRemovalError: LocalizedError, Equatable {
     case restoreFailed(String)
     case appIsRunning
+    case appIsRunningForRepair
 
     var errorDescription: String? {
         switch self {
@@ -11,11 +12,14 @@ enum ClosedLidHelperRemovalError: LocalizedError, Equatable {
             "Closed-lid mode must be restored before removing Lid Awake Helper: \(message)"
         case .appIsRunning:
             "Lid Awake is running. Quit it first, or remove the helper from Lid Awake Settings."
+        case .appIsRunningForRepair:
+            "Lid Awake is running. Quit it first, or repair the helper from Lid Awake Settings."
         }
     }
 }
 
-/// Removes the helper outside the running app, for `--helper-remove`.
+/// Removes or repairs the helper outside the running app, for
+/// `--helper-remove` and `--helper-repair`.
 ///
 /// Unregistering the helper while this app still owns closed-lid mode would
 /// leave `pmset disablesleep 1` set with nothing able to turn it back off, so
@@ -23,8 +27,8 @@ enum ClosedLidHelperRemovalError: LocalizedError, Equatable {
 ///
 /// A running copy of the app can have an enable on its way to the helper that
 /// this process cannot see, and it can land between the restore and the
-/// unregister, so removal is refused while the app is running. The app's own
-/// Remove holds back its changes while it removes the helper.
+/// unregister, so both are refused while the app is running. The app's own
+/// Remove and Repair hold back its changes while they replace the helper.
 enum ClosedLidHelperRemoval {
     static let restoreTimeout: TimeInterval = 5
 
@@ -44,8 +48,60 @@ enum ClosedLidHelperRemoval {
             statusReader: statusReader,
             ownershipStore: ownershipStore,
             restoreTimeout: restoreTimeout
-        )
+        ).mapError { ClosedLidHelperRemovalError.restoreFailed($0.message) }.get()
         try helperService.unregister()
+    }
+
+    /// Re-registers the helper, restoring closed-lid mode the app left owned.
+    ///
+    /// No copy of the app is running, so a mode it still owns was left on by
+    /// one that crashed, and nothing is left to want it on. The old helper may
+    /// still be retrying that restore, and unregistering it drops the retries,
+    /// so this restores through it first. A helper that does not answer is
+    /// usually why a repair is run, so the repair then goes ahead and restores
+    /// through the new helper instead. One that answers but cannot restore
+    /// keeps its retries, so the repair stops there.
+    static func repairHelper(
+        helperService: ClosedLidHelperServicing,
+        statusReader: ClosedLidStatusReading,
+        ownershipStore: ClosedLidOwnershipStoring,
+        appIsRunning: Bool,
+        restoreTimeout: TimeInterval = restoreTimeout,
+        repairRegistration: () throws -> Void
+    ) throws {
+        guard !appIsRunning else {
+            throw ClosedLidHelperRemovalError.appIsRunningForRepair
+        }
+
+        let restoreBeforeRepair = restoreOwnedClosedLidMode(
+            helperService: helperService,
+            statusReader: statusReader,
+            ownershipStore: ownershipStore,
+            restoreTimeout: restoreTimeout
+        )
+        if case let .failure(failure) = restoreBeforeRepair, failure.helperAnswered {
+            throw ClosedLidHelperRemovalError.restoreFailed(failure.message)
+        }
+
+        try repairRegistration()
+
+        guard case .failure = restoreBeforeRepair else {
+            return
+        }
+
+        try restoreOwnedClosedLidMode(
+            helperService: helperService,
+            statusReader: statusReader,
+            ownershipStore: ownershipStore,
+            restoreTimeout: restoreTimeout
+        ).mapError { ClosedLidHelperRemovalError.restoreFailed($0.message) }.get()
+    }
+
+    private struct RestoreFailure: Error {
+        let message: String
+        /// The helper ran the restore and reported that it failed, so it is
+        /// reachable and still watching for the app it last served.
+        let helperAnswered: Bool
     }
 
     private static func restoreOwnedClosedLidMode(
@@ -53,7 +109,7 @@ enum ClosedLidHelperRemoval {
         statusReader: ClosedLidStatusReading,
         ownershipStore: ClosedLidOwnershipStoring,
         restoreTimeout: TimeInterval
-    ) throws {
+    ) -> Result<Void, RestoreFailure> {
         // An enable already queued in the helper can land after any read, so
         // a helper that can change the mode is asked to turn it off whatever
         // `pmset` reports, which is harmless when it is already off. One that
@@ -67,13 +123,13 @@ enum ClosedLidHelperRemoval {
             attemptedAt: Date()
         ) {
         case .none:
-            return
+            return .success(())
         case .clearRecord:
             ownershipStore.clear()
-            return
+            return .success(())
         case let .blockedByHelper(record):
             ownershipStore.save(record)
-            throw ClosedLidHelperRemovalError.restoreFailed("Advanced Helper is not ready.")
+            return .failure(RestoreFailure(message: "Advanced Helper is not ready.", helperAnswered: false))
         case let .restore(record):
             ownershipStore.save(record)
         }
@@ -94,8 +150,11 @@ enum ClosedLidHelperRemoval {
         ) {
         case .clearRecord:
             ownershipStore.clear()
+            return .success(())
         case let .keepRecord(errorMessage):
-            throw ClosedLidHelperRemovalError.restoreFailed(errorMessage)
+            let helperAnswered = didComplete
+                && (restoreError as? ClosedLidHelperFailure)?.isRecoverableByRepair != true
+            return .failure(RestoreFailure(message: errorMessage, helperAnswered: helperAnswered))
         }
     }
 }
