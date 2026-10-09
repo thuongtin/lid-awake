@@ -5,27 +5,54 @@ final class ClosedLidRestoreWatchdogTests: XCTestCase {
     func testRestoresWhenTheClientThatEnabledClosedLidModeExits() {
         let harness = WatchdogHarness()
 
-        harness.watchdog.closedLidModeChangeAttempted(enabled: true, succeeded: true, clientProcessID: 42)
+        harness.watchdog.closedLidModeChangeAttempted(enabled: true, outcome: .succeeded, clientProcessID: 42)
         harness.watcher.exit(42)
 
         XCTAssertEqual(harness.restoreCount, 1)
     }
 
-    func testArmsEvenWhenTheEnableReportedFailure() {
+    func testArmsWhenTheEnableOutcomeIsUnknown() {
         // A timed-out pmset may still have applied the change.
         let harness = WatchdogHarness()
 
-        harness.watchdog.closedLidModeChangeAttempted(enabled: true, succeeded: false, clientProcessID: 42)
+        harness.watchdog.closedLidModeChangeAttempted(enabled: true, outcome: .unknown, clientProcessID: 42)
         harness.watcher.exit(42)
 
         XCTAssertEqual(harness.restoreCount, 1)
+    }
+
+    func testDoesNotArmWhenPMSetReportedTheEnableFailed() {
+        // The setting did not change, so someone else may turn it on later.
+        let harness = WatchdogHarness()
+
+        harness.watchdog.closedLidModeChangeAttempted(enabled: true, outcome: .failed, clientProcessID: 42)
+        harness.watcher.exit(42)
+
+        XCTAssertEqual(harness.restoreCount, 0)
+    }
+
+    func testAFailedEnableKeepsTheEarlierWatch() {
+        let harness = WatchdogHarness()
+
+        harness.watchdog.closedLidModeChangeAttempted(enabled: true, outcome: .succeeded, clientProcessID: 42)
+        harness.watchdog.closedLidModeChangeAttempted(enabled: true, outcome: .failed, clientProcessID: 43)
+        harness.watcher.exit(42)
+
+        XCTAssertEqual(harness.restoreCount, 1)
+    }
+
+    func testOnlyAFailureReportedByPMSetCountsAsDefinite() {
+        XCTAssertEqual(ClosedLidModeChangeOutcome(error: nil), .succeeded)
+        XCTAssertEqual(ClosedLidModeChangeOutcome(error: PMSetError.commandFailed(1, "denied")), .failed)
+        XCTAssertEqual(ClosedLidModeChangeOutcome(error: PMSetError.timedOut("hung")), .unknown)
+        XCTAssertEqual(ClosedLidModeChangeOutcome(error: CocoaError(.fileNoSuchFile)), .unknown)
     }
 
     func testDisarmsAfterASuccessfulRestoreByTheApp() {
         let harness = WatchdogHarness()
 
-        harness.watchdog.closedLidModeChangeAttempted(enabled: true, succeeded: true, clientProcessID: 42)
-        harness.watchdog.closedLidModeChangeAttempted(enabled: false, succeeded: true, clientProcessID: 42)
+        harness.watchdog.closedLidModeChangeAttempted(enabled: true, outcome: .succeeded, clientProcessID: 42)
+        harness.watchdog.closedLidModeChangeAttempted(enabled: false, outcome: .succeeded, clientProcessID: 42)
         harness.watcher.exit(42)
 
         XCTAssertEqual(harness.restoreCount, 0)
@@ -35,8 +62,8 @@ final class ClosedLidRestoreWatchdogTests: XCTestCase {
     func testStaysArmedWhenTheAppsRestoreFails() {
         let harness = WatchdogHarness()
 
-        harness.watchdog.closedLidModeChangeAttempted(enabled: true, succeeded: true, clientProcessID: 42)
-        harness.watchdog.closedLidModeChangeAttempted(enabled: false, succeeded: false, clientProcessID: 42)
+        harness.watchdog.closedLidModeChangeAttempted(enabled: true, outcome: .succeeded, clientProcessID: 42)
+        harness.watchdog.closedLidModeChangeAttempted(enabled: false, outcome: .failed, clientProcessID: 42)
         harness.watcher.exit(42)
 
         XCTAssertEqual(harness.restoreCount, 1)
@@ -45,8 +72,8 @@ final class ClosedLidRestoreWatchdogTests: XCTestCase {
     func testFollowsTheMostRecentClientThatEnabled() {
         let harness = WatchdogHarness()
 
-        harness.watchdog.closedLidModeChangeAttempted(enabled: true, succeeded: true, clientProcessID: 42)
-        harness.watchdog.closedLidModeChangeAttempted(enabled: true, succeeded: true, clientProcessID: 43)
+        harness.watchdog.closedLidModeChangeAttempted(enabled: true, outcome: .succeeded, clientProcessID: 42)
+        harness.watchdog.closedLidModeChangeAttempted(enabled: true, outcome: .succeeded, clientProcessID: 43)
         harness.watcher.exit(42)
 
         XCTAssertEqual(harness.restoreCount, 0)
@@ -60,7 +87,7 @@ final class ClosedLidRestoreWatchdogTests: XCTestCase {
     func testRestoresOnlyOncePerEnable() {
         let harness = WatchdogHarness()
 
-        harness.watchdog.closedLidModeChangeAttempted(enabled: true, succeeded: true, clientProcessID: 42)
+        harness.watchdog.closedLidModeChangeAttempted(enabled: true, outcome: .succeeded, clientProcessID: 42)
         harness.watcher.exit(42)
         harness.watcher.exit(42)
 
@@ -71,7 +98,7 @@ final class ClosedLidRestoreWatchdogTests: XCTestCase {
         let harness = WatchdogHarness()
         harness.restoreResults = [false, false, true]
 
-        harness.watchdog.closedLidModeChangeAttempted(enabled: true, succeeded: true, clientProcessID: 42)
+        harness.watchdog.closedLidModeChangeAttempted(enabled: true, outcome: .succeeded, clientProcessID: 42)
         harness.watcher.exit(42)
 
         XCTAssertEqual(harness.restoreCount, 1)
@@ -90,7 +117,7 @@ final class ClosedLidRestoreWatchdogTests: XCTestCase {
         let harness = WatchdogHarness()
         harness.restoreResults = []
 
-        harness.watchdog.closedLidModeChangeAttempted(enabled: true, succeeded: true, clientProcessID: 42)
+        harness.watchdog.closedLidModeChangeAttempted(enabled: true, outcome: .succeeded, clientProcessID: 42)
         harness.watcher.exit(42)
         for _ in 0..<7 {
             harness.scheduler.runNext()
@@ -104,10 +131,10 @@ final class ClosedLidRestoreWatchdogTests: XCTestCase {
         let harness = WatchdogHarness()
         harness.restoreResults = []
 
-        harness.watchdog.closedLidModeChangeAttempted(enabled: true, succeeded: true, clientProcessID: 42)
+        harness.watchdog.closedLidModeChangeAttempted(enabled: true, outcome: .succeeded, clientProcessID: 42)
         harness.watcher.exit(42)
         // A relaunched app owns the mode again and restores it itself.
-        harness.watchdog.closedLidModeChangeAttempted(enabled: true, succeeded: true, clientProcessID: 43)
+        harness.watchdog.closedLidModeChangeAttempted(enabled: true, outcome: .succeeded, clientProcessID: 43)
         harness.scheduler.runNext()
 
         XCTAssertEqual(harness.restoreCount, 1)
@@ -118,9 +145,9 @@ final class ClosedLidRestoreWatchdogTests: XCTestCase {
         let harness = WatchdogHarness()
         harness.restoreResults = []
 
-        harness.watchdog.closedLidModeChangeAttempted(enabled: true, succeeded: true, clientProcessID: 42)
+        harness.watchdog.closedLidModeChangeAttempted(enabled: true, outcome: .succeeded, clientProcessID: 42)
         harness.watcher.exit(42)
-        harness.watchdog.closedLidModeChangeAttempted(enabled: false, succeeded: true, clientProcessID: 43)
+        harness.watchdog.closedLidModeChangeAttempted(enabled: false, outcome: .succeeded, clientProcessID: 43)
         harness.scheduler.runNext()
 
         XCTAssertEqual(harness.restoreCount, 1)
@@ -130,7 +157,7 @@ final class ClosedLidRestoreWatchdogTests: XCTestCase {
     func testIgnoresADisableFromAClientThatNeverEnabled() {
         let harness = WatchdogHarness()
 
-        harness.watchdog.closedLidModeChangeAttempted(enabled: false, succeeded: true, clientProcessID: 42)
+        harness.watchdog.closedLidModeChangeAttempted(enabled: false, outcome: .succeeded, clientProcessID: 42)
 
         XCTAssertTrue(harness.watcher.watchedProcessIDs.isEmpty)
         XCTAssertEqual(harness.restoreCount, 0)

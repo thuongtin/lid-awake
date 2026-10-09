@@ -69,7 +69,9 @@ final class PMSetServiceTests: XCTestCase {
         let runner = RecordingProcessRunner(result: ProcessResult(status: -1, output: "pmset hung", timedOut: true))
         let service = PMSetService(runProcess: runner.run)
 
-        XCTAssertThrowsError(try service.setClosedLidMode(enabled: false))
+        XCTAssertThrowsError(try service.setClosedLidMode(enabled: false)) { error in
+            XCTAssertEqual(error as? PMSetError, .timedOut("pmset hung"))
+        }
         XCTAssertEqual(runner.calls.map(\.arguments), [["-a", "disablesleep", "0"]])
         XCTAssertEqual(runner.calls.first?.timeout, PMSetService.closedLidChangeTimeout)
     }

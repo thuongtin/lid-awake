@@ -4,6 +4,28 @@ public protocol ProcessExitWatching: AnyObject {
     func cancel()
 }
 
+/// What a `setClosedLidMode` request is known to have done.
+public enum ClosedLidModeChangeOutcome: Equatable, Sendable {
+    case succeeded
+    /// `pmset` reported a failure, so the setting did not change.
+    case failed
+    /// No answer came back, so the setting may or may not have changed.
+    case unknown
+
+    /// Only a failure `pmset` itself reported counts as definite; anything
+    /// else may have applied the change.
+    public init(error: Error?) {
+        switch error {
+        case nil:
+            self = .succeeded
+        case PMSetError.commandFailed?:
+            self = .failed
+        default:
+            self = .unknown
+        }
+    }
+}
+
 /// Turns closed-lid mode back off when the app that enabled it dies first.
 ///
 /// `pmset -a disablesleep` is a machine-wide setting that outlives the app.
@@ -52,15 +74,24 @@ public final class ClosedLidRestoreWatchdog {
 
     /// Records a `setClosedLidMode` request the helper just ran.
     ///
-    /// Any enable attempt arms the watch, even one that reported failure,
-    /// because a `pmset` that timed out may still have applied it. Only a
-    /// disable that succeeded disarms it.
-    public func closedLidModeChangeAttempted(enabled: Bool, succeeded: Bool, clientProcessID: Int32) {
+    /// An enable arms the watch unless `pmset` reported that it failed, since
+    /// one that timed out may still have applied it. An enable that failed
+    /// outright changed nothing, so it leaves any earlier watch in place.
+    /// Only a disable that succeeded disarms it.
+    public func closedLidModeChangeAttempted(
+        enabled: Bool,
+        outcome: ClosedLidModeChangeOutcome,
+        clientProcessID: Int32
+    ) {
         guard enabled else {
-            if succeeded {
+            if outcome == .succeeded {
                 disarm()
                 pendingRestore = nil
             }
+            return
+        }
+
+        guard outcome != .failed else {
             return
         }
 

@@ -67,22 +67,21 @@ final class HelperService: NSObject, NSXPCListenerDelegate, LidAwakeHelperXPCPro
         // hopping queues. It names the client the accept-time checks approved.
         let clientProcessID = NSXPCConnection.current()?.processIdentifier
         commandQueue.async { [self] in
-            let failureMessage: String?
+            var changeError: Error?
             do {
                 try pmsetService.setClosedLidMode(enabled: enabled)
-                failureMessage = nil
             } catch {
-                failureMessage = error.localizedDescription
+                changeError = error
             }
 
             if let clientProcessID {
                 restoreWatchdog.closedLidModeChangeAttempted(
                     enabled: enabled,
-                    succeeded: failureMessage == nil,
+                    outcome: ClosedLidModeChangeOutcome(error: changeError),
                     clientProcessID: clientProcessID
                 )
             }
-            reply(failureMessage == nil, failureMessage)
+            reply(changeError == nil, changeError?.localizedDescription)
         }
     }
 }

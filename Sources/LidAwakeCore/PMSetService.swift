@@ -1,12 +1,17 @@
 import Foundation
 
 public enum PMSetError: LocalizedError, Equatable {
+    /// `pmset` exited and reported a failure.
     case commandFailed(Int32, String)
+    /// `pmset` was stopped before it exited, so it may have applied the change.
+    case timedOut(String)
 
     public var errorDescription: String? {
         switch self {
         case let .commandFailed(status, output):
             output.isEmpty ? "pmset failed with exit code \(status)." : output
+        case let .timedOut(output):
+            output
         }
     }
 }
@@ -50,6 +55,9 @@ public struct PMSetService: Sendable {
     public func setClosedLidMode(enabled: Bool) throws {
         let value = enabled ? "1" : "0"
         let result = runProcess("/usr/bin/pmset", ["-a", "disablesleep", value], Self.closedLidChangeTimeout)
+        guard !result.timedOut else {
+            throw PMSetError.timedOut(result.output)
+        }
 
         guard result.status == 0, !Self.isPermissionFailureOutput(result.output) else {
             throw PMSetError.commandFailed(result.status, result.output)
