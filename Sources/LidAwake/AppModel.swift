@@ -1592,6 +1592,9 @@ final class AppModel: ObservableObject {
             break
         case .requestedLock:
             closedLidLockError = nil
+            // A request folded into a command still running from an earlier
+            // closure is only served by that command, so its failure leaves
+            // this closure unlocked too and is reported for it.
             lockRequestLidClosureID = closedLidLockCoordinator.lidClosureID
             logger.info("requested screen lock for closed lid")
         case let .failed(message):
