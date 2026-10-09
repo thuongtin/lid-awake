@@ -86,7 +86,10 @@ public final class ClosedLidRestoreWatchdog {
     /// helper for a mode it already owns, and that mode still needs a watch
     /// when `pmset` rejects the repeat. A read that does not report the
     /// setting counts as on, since only a mode known to be off can do without
-    /// the watch. Only a disable that succeeded disarms it.
+    /// the watch. Only a disable that succeeded disarms it. A disable that did
+    /// not succeed while nothing is watched or retried watches its client
+    /// instead, since the mode may still be on: a command-line repair restores
+    /// through a new helper that has no watch yet and then exits.
     public func closedLidModeChangeAttempted(
         enabled: Bool,
         outcome: ClosedLidModeChangeOutcome,
@@ -96,6 +99,8 @@ public final class ClosedLidRestoreWatchdog {
             if outcome == .succeeded {
                 disarm()
                 pendingRestore = nil
+            } else if armed == nil, pendingRestore == nil, readClosedLidStatus() != .disabled {
+                arm(clientProcessID: clientProcessID)
             }
             return
         }
@@ -110,6 +115,10 @@ public final class ClosedLidRestoreWatchdog {
             return
         }
 
+        arm(clientProcessID: clientProcessID)
+    }
+
+    private func arm(clientProcessID: Int32) {
         disarm()
         let token = UUID()
         let watch = watchProcessExit(clientProcessID) { [weak self] in

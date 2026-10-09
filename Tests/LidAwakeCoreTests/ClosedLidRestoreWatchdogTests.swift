@@ -188,6 +188,42 @@ final class ClosedLidRestoreWatchdogTests: XCTestCase {
         XCTAssertTrue(harness.scheduler.pending.isEmpty)
     }
 
+    func testWatchesAClientWhoseDisableFailedWhileTheModeIsOn() {
+        // A command-line repair restores through a new helper that has no
+        // watch, then exits, so the helper keeps retrying after it.
+        let harness = WatchdogHarness()
+        harness.closedLidStatus = .enabled
+        harness.restoreResults = [false]
+
+        harness.watchdog.closedLidModeChangeAttempted(enabled: false, outcome: .failed, clientProcessID: 42)
+        harness.watcher.exit(42)
+        harness.scheduler.runNext()
+
+        XCTAssertEqual(harness.restoreCount, 2)
+    }
+
+    func testAFailedDisableKeepsTheWatchOnTheClientThatEnabled() {
+        let harness = WatchdogHarness()
+        harness.closedLidStatus = .enabled
+
+        harness.watchdog.closedLidModeChangeAttempted(enabled: true, outcome: .succeeded, clientProcessID: 42)
+        harness.watchdog.closedLidModeChangeAttempted(enabled: false, outcome: .failed, clientProcessID: 43)
+        harness.watcher.exit(43)
+        XCTAssertEqual(harness.restoreCount, 0)
+
+        harness.watcher.exit(42)
+        XCTAssertEqual(harness.restoreCount, 1)
+    }
+
+    func testDoesNotWatchAFailedDisableWhenTheModeIsOff() {
+        let harness = WatchdogHarness()
+        harness.closedLidStatus = .disabled
+
+        harness.watchdog.closedLidModeChangeAttempted(enabled: false, outcome: .failed, clientProcessID: 42)
+
+        XCTAssertTrue(harness.watcher.watchedProcessIDs.isEmpty)
+    }
+
     func testIgnoresADisableFromAClientThatNeverEnabled() {
         let harness = WatchdogHarness()
 
