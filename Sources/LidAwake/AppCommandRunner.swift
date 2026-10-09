@@ -1,6 +1,14 @@
 import AppKit
 import LidAwakeCore
 
+private struct InstanceLockUnavailableError: LocalizedError {
+    let message: String
+
+    var errorDescription: String? {
+        "Could not make sure Lid Awake stays closed while changing the helper: \(message)"
+    }
+}
+
 enum AppCommandRunner {
     /// Held until the command exits, so no copy of the app starts meanwhile.
     private static var instanceLock: AppInstanceLock?
@@ -22,7 +30,7 @@ enum AppCommandRunner {
                     helperService: helperService,
                     statusReader: PMSetService(),
                     ownershipStore: UserDefaultsClosedLidOwnershipStore(),
-                    appIsRunning: lockOutAppCopies()
+                    appIsRunning: try lockOutAppCopies()
                 ) {
                     try repairRegistration(helperService: helperService)
                 }
@@ -32,7 +40,7 @@ enum AppCommandRunner {
                     helperService: helperService,
                     statusReader: PMSetService(),
                     ownershipStore: UserDefaultsClosedLidOwnershipStore(),
-                    appIsRunning: lockOutAppCopies()
+                    appIsRunning: try lockOutAppCopies()
                 )
                 print(helperService.status.displayText)
             case "--helper-status":
@@ -65,14 +73,17 @@ enum AppCommandRunner {
 
     /// Reports whether a copy of the app is running, and otherwise keeps one
     /// from starting until this process exits.
-    private static func lockOutAppCopies() -> Bool {
+    ///
+    /// Without the lock a copy could start partway through the change, so a
+    /// lock that cannot be taken refuses the command.
+    private static func lockOutAppCopies() throws -> Bool {
         switch AppInstanceLock.acquire(.exclusive) {
         case let .acquired(lock):
             instanceLock = lock
         case .busy:
             return true
         case let .unavailable(message):
-            fputs("Could not hold off Lid Awake while changing the helper: \(message)\n", stderr)
+            throw InstanceLockUnavailableError(message: message)
         }
 
         // Copies built before the lock existed never take it.

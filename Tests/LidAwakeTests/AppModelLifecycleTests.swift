@@ -1968,6 +1968,16 @@ final class AppInstanceLockTests: XCTestCase {
         withExtendedLifetime((first, second)) {}
     }
 
+    func testALockFileReplacedByASymlinkIsUnavailable() throws {
+        let target = lockURL.deletingLastPathComponent().appendingPathComponent("elsewhere")
+        try FileManager.default.createDirectory(at: lockURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(at: lockURL, withDestinationURL: target)
+
+        guard case .unavailable = AppInstanceLock.acquire(.exclusive, at: lockURL) else {
+            return XCTFail("the lock followed a symlink")
+        }
+    }
+
     func testACommandKeepsACopyOutUntilItFinishes() {
         var command = acquire(.exclusive)
         XCTAssertNotNil(command)
