@@ -156,6 +156,10 @@ final class AppModel: ObservableObject {
     /// Set once the app started quitting, so nothing turns closed-lid mode
     /// back on after the restore that runs on the way out.
     private var isTerminating = false
+    /// Set from the start of a repair until its registration settles.
+    private var isRepairingClosedLidHelper = false
+    /// A quit that arrived during a repair, waiting to restore once it settles.
+    private var terminationRestoreAfterRepair: (@MainActor () -> Void)?
     private var didPromptForScreenLockAccessibility = false
     /// The lid closure the last display sleep command was started for.
     private var displaySleepRequestLidClosureID: Int?
@@ -534,7 +538,8 @@ final class AppModel: ObservableObject {
     /// holding the main thread while the helper answers.
     ///
     /// `completion` runs once: when the restore settles, or after
-    /// `terminationRestoreTimeout`, whichever comes first. A restore still out
+    /// `terminationRestoreTimeout`, whichever comes first. A quit during a
+    /// repair waits for the repair to settle before that restore starts. A restore still out
     /// when the app exits keeps its ownership record for the next launch, and
     /// the helper restores on its own once it sees this process exit.
     func prepareForTermination(completion: @escaping @MainActor () -> Void) {
@@ -555,7 +560,34 @@ final class AppModel: ObservableObject {
             return
         }
 
+        // A repair has already stopped the old helper, and with it the
+        // watchdog, so the restore has to go through the one replacing it.
+        // The repair answers within its own timeout.
+        if isRepairingClosedLidHelper {
+            terminationRestoreAfterRepair = { [weak self] in
+                self?.restoreClosedLidModeForTermination(complete: complete)
+            }
+            return
+        }
+
+        restoreClosedLidModeForTermination(complete: complete)
+    }
+
+    private func restoreClosedLidModeForTermination(complete: @escaping @MainActor () -> Void) {
         syncClosedLidHelperStatus()
+
+        // Only a repair that unregistered and then could not register again
+        // leaves owned closed-lid mode with no registration, and no other
+        // process can turn it off. The earlier approval still covers this.
+        if closedLidHelperStatus == .notRegistered {
+            do {
+                try closedLidHelperService.register()
+                logger.info("registered closed-lid helper again to restore before quitting")
+            } catch {
+                logger.error("closed-lid helper registration before quitting failed error=\(error.localizedDescription, privacy: .public)")
+            }
+            syncClosedLidHelperStatus()
+        }
 
         // Restoring a mode that is already off is harmless, while reading
         // `pmset` first would spend part of the quit on a process that can
@@ -736,6 +768,7 @@ final class AppModel: ObservableObject {
         // Held until macOS settles the registration, the same way a removal
         // holds it, so no change reaches a helper that is being replaced.
         isChangingClosedLidMode = true
+        isRepairingClosedLidHelper = true
         closedLidHelperService.repairRegistration { [weak self] result in
             DispatchQueue.main.async {
                 self?.finishRepairingClosedLidHelper(result: result)
@@ -745,7 +778,11 @@ final class AppModel: ObservableObject {
 
     private func finishRepairingClosedLidHelper(result: Result<Void, Error>) {
         isChangingClosedLidMode = false
+        isRepairingClosedLidHelper = false
         guard !isTerminating else {
+            let restore = terminationRestoreAfterRepair
+            terminationRestoreAfterRepair = nil
+            restore?()
             return
         }
 

@@ -79,3 +79,4 @@ When the user removes Lid Awake Helper while this app owns closed-lid mode, Lid 
 11. Command-line removal: with closed-lid mode enabled by the app, `LidAwake.app/Contents/MacOS/LidAwake --helper-remove` should restore `SleepDisabled 0` before printing `Not set up`. With the helper unapproved, it should fail and leave the helper registered.
 12. Remove during a change: pressing Remove in Settings is disabled while `Updating helper` is shown.
 13. Re-arm after Repair: with closed-lid mode enabled by the app and Repair offered in Settings, press Repair, wait for `Ready`, then `kill -9` the `LidAwake` process. Within a second `pmset -g` should report `SleepDisabled 0`.
+14. Quit during Repair: with closed-lid mode enabled by the app and Repair offered in Settings, press Repair and quit Lid Awake right away. The app should stay open until the helper is registered again (about 2 seconds), then quit with `pmset -g` reporting `SleepDisabled 0`.
