@@ -31,6 +31,30 @@ final class ClosedLidRestoreWatchdogTests: XCTestCase {
         XCTAssertEqual(harness.restoreCount, 0)
     }
 
+    func testArmsWhenARejectedEnableFindsTheModeAlreadyOn() {
+        // A re-arm for a mode the app already owns: the setting is on whatever
+        // `pmset` said about the repeat, so it still needs restoring.
+        let harness = WatchdogHarness()
+        harness.closedLidStatus = .enabled
+
+        harness.watchdog.closedLidModeChangeAttempted(enabled: true, outcome: .failed, clientProcessID: 42)
+        harness.watcher.exit(42)
+
+        XCTAssertEqual(harness.restoreCount, 1)
+    }
+
+    func testReadsTheModeOnlyForARejectedEnable() {
+        let harness = WatchdogHarness()
+
+        harness.watchdog.closedLidModeChangeAttempted(enabled: true, outcome: .succeeded, clientProcessID: 42)
+        harness.watchdog.closedLidModeChangeAttempted(enabled: true, outcome: .unknown, clientProcessID: 43)
+        harness.watchdog.closedLidModeChangeAttempted(enabled: false, outcome: .failed, clientProcessID: 43)
+        XCTAssertEqual(harness.statusReadCount, 0)
+
+        harness.watchdog.closedLidModeChangeAttempted(enabled: true, outcome: .failed, clientProcessID: 44)
+        XCTAssertEqual(harness.statusReadCount, 1)
+    }
+
     func testAFailedEnableKeepsTheEarlierWatch() {
         let harness = WatchdogHarness()
 
@@ -207,6 +231,8 @@ private final class WatchdogHarness {
     /// Results handed out in order; once empty every restore fails. `nil`
     /// means every restore succeeds.
     var restoreResults: [Bool]?
+    var closedLidStatus: ClosedLidStatus = .disabled
+    private(set) var statusReadCount = 0
     lazy var watchdog = ClosedLidRestoreWatchdog(
         restore: { [unowned self] in
             restoreCount += 1
@@ -215,6 +241,10 @@ private final class WatchdogHarness {
             }
 
             return restoreResults!.isEmpty ? false : restoreResults!.removeFirst()
+        },
+        readClosedLidStatus: { [unowned self] in
+            statusReadCount += 1
+            return closedLidStatus
         },
         watchProcessExit: { [watcher] processID, handler in
             watcher.watch(processID, handler: handler)

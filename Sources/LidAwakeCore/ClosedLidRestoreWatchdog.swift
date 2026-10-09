@@ -54,20 +54,25 @@ public final class ClosedLidRestoreWatchdog {
     }
 
     private let restore: () -> Bool
+    private let readClosedLidStatus: () -> ClosedLidStatus
     private let watchProcessExit: WatchProcessExit
     private let scheduleRetry: ScheduleRetry
     private var armed: ArmedWatch?
     /// Identifies the restore still being retried, if any.
     private var pendingRestore: UUID?
 
-    /// - Parameter restore: Turns closed-lid mode off and reports whether it
-    ///   worked.
+    /// - Parameters:
+    ///   - restore: Turns closed-lid mode off and reports whether it worked.
+    ///   - readClosedLidStatus: Reads the current setting, for an enable that
+    ///     `pmset` rejected.
     public init(
         restore: @escaping () -> Bool,
+        readClosedLidStatus: @escaping () -> ClosedLidStatus,
         watchProcessExit: @escaping WatchProcessExit,
         scheduleRetry: @escaping ScheduleRetry
     ) {
         self.restore = restore
+        self.readClosedLidStatus = readClosedLidStatus
         self.watchProcessExit = watchProcessExit
         self.scheduleRetry = scheduleRetry
     }
@@ -76,8 +81,11 @@ public final class ClosedLidRestoreWatchdog {
     ///
     /// An enable arms the watch unless `pmset` reported that it failed, since
     /// one that timed out may still have applied it. An enable that failed
-    /// outright changed nothing, so it leaves any earlier watch in place.
-    /// Only a disable that succeeded disarms it.
+    /// outright changed nothing, so it leaves any earlier watch in place,
+    /// unless the mode is on anyway: the app re-sends the enable to a new
+    /// helper for a mode it already owns, and that mode still needs a watch
+    /// when `pmset` rejects the repeat. Only a disable that succeeded disarms
+    /// it.
     public func closedLidModeChangeAttempted(
         enabled: Bool,
         outcome: ClosedLidModeChangeOutcome,
@@ -91,7 +99,7 @@ public final class ClosedLidRestoreWatchdog {
             return
         }
 
-        guard outcome != .failed else {
+        guard outcome != .failed || readClosedLidStatus() == .enabled else {
             return
         }
 

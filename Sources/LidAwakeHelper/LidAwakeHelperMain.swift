@@ -29,6 +29,9 @@ final class HelperService: NSObject, NSXPCListenerDelegate, LidAwakeHelperXPCPro
                 return false
             }
         },
+        readClosedLidStatus: { [pmsetService] in
+            pmsetService.readClosedLidStatus()
+        },
         watchProcessExit: { [commandQueue] processID, handler in
             DispatchProcessExitWatch(processID: processID, queue: commandQueue, handler: handler)
         },
