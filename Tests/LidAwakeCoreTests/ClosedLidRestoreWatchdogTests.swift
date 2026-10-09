@@ -43,6 +43,16 @@ final class ClosedLidRestoreWatchdogTests: XCTestCase {
         XCTAssertEqual(harness.restoreCount, 1)
     }
 
+    func testArmsWhenARejectedEnableCannotReadTheMode() {
+        let harness = WatchdogHarness()
+        harness.closedLidStatus = .notReported
+
+        harness.watchdog.closedLidModeChangeAttempted(enabled: true, outcome: .failed, clientProcessID: 42)
+        harness.watcher.exit(42)
+
+        XCTAssertEqual(harness.restoreCount, 1)
+    }
+
     func testReadsTheModeOnlyForARejectedEnable() {
         let harness = WatchdogHarness()
 

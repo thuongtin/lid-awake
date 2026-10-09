@@ -84,8 +84,9 @@ public final class ClosedLidRestoreWatchdog {
     /// outright changed nothing, so it leaves any earlier watch in place,
     /// unless the mode is on anyway: the app re-sends the enable to a new
     /// helper for a mode it already owns, and that mode still needs a watch
-    /// when `pmset` rejects the repeat. Only a disable that succeeded disarms
-    /// it.
+    /// when `pmset` rejects the repeat. A read that does not report the
+    /// setting counts as on, since only a mode known to be off can do without
+    /// the watch. Only a disable that succeeded disarms it.
     public func closedLidModeChangeAttempted(
         enabled: Bool,
         outcome: ClosedLidModeChangeOutcome,
@@ -99,7 +100,7 @@ public final class ClosedLidRestoreWatchdog {
             return
         }
 
-        guard outcome != .failed || readClosedLidStatus() == .enabled else {
+        guard outcome != .failed || readClosedLidStatus() != .disabled else {
             return
         }
 
