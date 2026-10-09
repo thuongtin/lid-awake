@@ -33,7 +33,7 @@ protocol ClosedLidStatusReading {
 protocol ClosedLidHelperServicing: AnyObject {
     var status: ClosedLidHelperStatus { get }
     func register() throws
-    func repairRegistration() throws
+    func repairRegistration(completion: @escaping (Result<Void, Error>) -> Void)
     func unregister() throws
     func setClosedLidMode(enabled: Bool, reply: @escaping (Result<Void, Error>) -> Void)
     func probeConnection(reply: @escaping (Result<Void, ClosedLidHelperFailure>) -> Void)
@@ -698,6 +698,10 @@ final class AppModel: ObservableObject {
             syncClosedLidHelperStatus()
             switch closedLidHelperStatus {
             case .enabled:
+                // A helper that was missing took its watchdog with it, and the
+                // process launchd starts now has never been sent an enable.
+                closedLidRestoreWatchdogArmed = false
+                lastClosedLidVerifiedAt = nil
                 closedLidError = nil
                 evaluate()
             case .requiresApproval:
@@ -724,10 +728,27 @@ final class AppModel: ObservableObject {
 
         closedLidHelperRemovalRequested = false
         closedLidRetryNotBefore = nil
+        // Unregistering stops the helper process, and the restore watchdog it
+        // ran, whether or not the new registration then succeeds.
+        closedLidRestoreWatchdogArmed = false
+        // Held until macOS settles the registration, the same way a removal
+        // holds it, so no change reaches a helper that is being replaced.
+        isChangingClosedLidMode = true
+        closedLidHelperService.repairRegistration { [weak self] result in
+            DispatchQueue.main.async {
+                self?.finishRepairingClosedLidHelper(result: result)
+            }
+        }
+    }
 
-        do {
-            try closedLidHelperService.repairRegistration()
-            closedLidRestoreWatchdogArmed = false
+    private func finishRepairingClosedLidHelper(result: Result<Void, Error>) {
+        isChangingClosedLidMode = false
+        guard !isTerminating else {
+            return
+        }
+
+        switch result {
+        case .success:
             // Read again rather than trust the steady state, so the next
             // evaluate reaches the watchdog check for the new helper process.
             lastClosedLidVerifiedAt = nil
@@ -748,7 +769,7 @@ final class AppModel: ObservableObject {
             case let .unavailable(message):
                 closedLidError = message
             }
-        } catch {
+        case let .failure(error):
             syncClosedLidHelperStatus()
             // Repair is only ever entered while it is already the offered
             // action, and a failure leaves that unchanged, so the flag is

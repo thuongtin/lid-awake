@@ -13,7 +13,7 @@ enum AppCommandRunner {
             let helperService = ClosedLidHelperService()
             switch command {
             case "--helper-repair":
-                try helperService.repairRegistration()
+                try repairRegistration(helperService: helperService)
                 print(helperService.status.displayText)
             case "--helper-remove":
                 try ClosedLidHelperRemoval.removeHelper(
@@ -35,6 +35,19 @@ enum AppCommandRunner {
             fputs("\(error.localizedDescription)\n", stderr)
             exit(1)
         }
+    }
+
+    private static func repairRegistration(helperService: ClosedLidHelperService) throws {
+        var result: Result<Void, Error>?
+        helperService.repairRegistration { outcome in
+            DispatchQueue.main.async {
+                result = outcome
+            }
+        }
+        while result == nil {
+            RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        }
+        try result?.get()
     }
 
     private static func printScreenLockStatus() {

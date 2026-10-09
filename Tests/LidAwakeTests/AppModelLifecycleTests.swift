@@ -462,6 +462,95 @@ final class AppModelLifecycleTests: XCTestCase {
         XCTAssertEqual(harness.ownershipStore.record?.ownedByThisApp, true)
     }
 
+    func testFailedRepairRearmsOnceTheHelperIsRegisteredAgain() async {
+        let harness = AppModelHarness(
+            settings: UserSettings(enabled: true),
+            helperStatus: .enabled,
+            closedLidStatus: .disabled
+        )
+        harness.helper.onSetClosedLidMode = { enabled in
+            harness.closedLidStatusReader.status = enabled ? .enabled : .disabled
+        }
+        harness.model.start(scheduleTimers: false)
+        await drainMainQueue()
+        XCTAssertEqual(harness.helper.setClosedLidModeRequests, [true])
+
+        // The unregister went through and stopped the helper process, then the
+        // register was refused.
+        harness.helper.repairRegistrationError = ClosedLidHelperFailure.commandFailed("Registration failed.")
+        harness.helper.statusAfterRepair = .notRegistered
+        harness.model.repairClosedLidHelper()
+        await drainMainQueue()
+        XCTAssertEqual(harness.helper.setClosedLidModeRequests, [true])
+
+        // Registered again from outside the app, so nothing reset the flag on
+        // the way back.
+        harness.helper.status = .enabled
+        harness.model.evaluate(forceClosedLidStatusRead: true)
+        await drainMainQueue()
+
+        XCTAssertEqual(harness.helper.setClosedLidModeRequests, [true, true])
+    }
+
+    func testSetUpAfterTheHelperWentAwayRearmsTheWatchdog() async {
+        let harness = AppModelHarness(
+            settings: UserSettings(enabled: true),
+            helperStatus: .enabled,
+            closedLidStatus: .disabled
+        )
+        harness.helper.onSetClosedLidMode = { enabled in
+            harness.closedLidStatusReader.status = enabled ? .enabled : .disabled
+        }
+        harness.model.start(scheduleTimers: false)
+        await drainMainQueue()
+        XCTAssertEqual(harness.helper.setClosedLidModeRequests, [true])
+
+        // Removed in System Settings, taking its process with it.
+        harness.helper.status = .notRegistered
+        harness.model.evaluate()
+        await drainMainQueue()
+
+        harness.helper.status = .enabled
+        harness.model.setupClosedLidHelper()
+        await drainMainQueue()
+
+        XCTAssertEqual(harness.helper.registerCallCount, 1)
+        XCTAssertEqual(harness.helper.setClosedLidModeRequests, [true, true])
+    }
+
+    func testRepairHoldsHelperChangesUntilTheRegistrationSettles() async {
+        let harness = AppModelHarness(
+            settings: UserSettings(enabled: true),
+            helperStatus: .enabled,
+            closedLidStatus: .disabled
+        )
+        harness.helper.onSetClosedLidMode = { enabled in
+            harness.closedLidStatusReader.status = enabled ? .enabled : .disabled
+        }
+        harness.model.start(scheduleTimers: false)
+        await drainMainQueue()
+        harness.helper.shouldReplyToRepairRegistration = false
+
+        harness.model.repairClosedLidHelper()
+        await drainMainQueue()
+        XCTAssertTrue(harness.model.isChangingClosedLidMode)
+
+        // Removing the helper while macOS is still replacing it could leave
+        // closed-lid mode on with no helper to restore it.
+        harness.model.removeClosedLidHelper()
+        harness.model.updateSettings { $0.enabled = false }
+        await drainMainQueue()
+        XCTAssertEqual(harness.helper.unregisterCallCount, 0)
+        XCTAssertEqual(harness.helper.setClosedLidModeRequests, [true])
+
+        harness.helper.pendingRepairReply?()
+        await drainMainQueue()
+
+        XCTAssertFalse(harness.model.isChangingClosedLidMode)
+        XCTAssertEqual(harness.helper.setClosedLidModeRequests, [true, false])
+        XCTAssertEqual(harness.closedLidStatusReader.status, .disabled)
+    }
+
     func testRemoveHelperUnregistersDirectlyWithoutOwnership() async {
         let harness = AppModelHarness(
             settings: UserSettings(enabled: false),
@@ -1642,6 +1731,10 @@ private final class FakeClosedLidHelperService: ClosedLidHelperServicing {
     private(set) var pendingProbeReply: ((Result<Void, ClosedLidHelperFailure>) -> Void)?
     private(set) var probeConnectionCallCount = 0
     var repairRegistrationError: Error?
+    /// Status the registration reports once a repair finishes, success or not.
+    var statusAfterRepair: ClosedLidHelperStatus?
+    var shouldReplyToRepairRegistration = true
+    private(set) var pendingRepairReply: (() -> Void)?
     var unregisterError: Error?
     private(set) var registerCallCount = 0
     private(set) var repairRegistrationCallCount = 0
@@ -1656,11 +1749,24 @@ private final class FakeClosedLidHelperService: ClosedLidHelperServicing {
         registerCallCount += 1
     }
 
-    func repairRegistration() throws {
+    func repairRegistration(completion: @escaping (Result<Void, Error>) -> Void) {
         repairRegistrationCallCount += 1
-        if let repairRegistrationError {
-            throw repairRegistrationError
+        let reply = { [self] in
+            if let statusAfterRepair {
+                status = statusAfterRepair
+            }
+            if let repairRegistrationError {
+                completion(.failure(repairRegistrationError))
+            } else {
+                completion(.success(()))
+            }
         }
+        guard shouldReplyToRepairRegistration else {
+            pendingRepairReply = reply
+            return
+        }
+
+        reply()
     }
 
     func unregister() throws {
