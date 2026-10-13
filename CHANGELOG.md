@@ -4,6 +4,17 @@ All notable changes to Lid Awake will be documented in this file.
 
 The format follows dated release sections after the first tagged release.
 
+## 0.1.8 - 2026-10-13
+
+- Added a helper watchdog that restores app-owned closed-lid mode after the app crashes or is force quit, and retries failed restores.
+- Preserved closed-lid ownership through command timeouts, helper repair, removal, and app termination so pending changes can be restored safely.
+- Prevented command-line helper maintenance from racing a running app and restored closed-lid mode before unregistering the helper.
+- Moved blocking system commands off the main thread and added bounded subprocess timeouts to keep the interface responsive.
+- Ignored stale display sleep and screen lock failures after the lid reopens, and left the screen alone when using an external display.
+- Fixed scheduled-stop input handling, cleared stop deadlines when Keep Awake turns off, and avoided treating legacy pause deadlines as scheduled stops.
+- Kept timers active during modal alerts, deduplicated blocked-state notifications, and clarified login items awaiting approval.
+- Required a signed, notarized release build when packaging public DMGs.
+
 ## 0.1.7 - 2026-07-29
 
 - Fixed a blank Settings window when Settings was opened from anywhere other than the menu bar popover.
