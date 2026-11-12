@@ -1219,6 +1219,17 @@ final class AppModelLifecycleTests: XCTestCase {
         XCTAssertEqual(RunningHelperBuild.result(forValidityStatus: 100_003), .unknown)
     }
 
+    func testFailedLookupOfTheRunningHelperMapsToABuildCheckResult() {
+        // The previous bundle was moved aside and deleted, so the old helper
+        // runs with no file left to look up.
+        XCTAssertEqual(RunningHelperBuild.result(forFailedLookupStatus: errSecErrnoBase + ENOENT), .outdated)
+        // No such process: the helper exited between its reply and the check.
+        XCTAssertEqual(RunningHelperBuild.result(forFailedLookupStatus: errSecErrnoBase + ESRCH), .unknown)
+        XCTAssertEqual(RunningHelperBuild.result(forFailedLookupStatus: errSecErrnoBase + EPERM), .unknown)
+        XCTAssertEqual(RunningHelperBuild.result(forFailedLookupStatus: errSecCSNoSuchCode), .unknown)
+        XCTAssertEqual(RunningHelperBuild.result(forFailedLookupStatus: errSecSuccess), .unknown)
+    }
+
     func testBuildCheckOfAMissingHelperOrProcessIsUnknown() {
         let missing = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("lid-awake-no-such-helper-\(UUID().uuidString)")

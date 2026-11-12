@@ -30,17 +30,30 @@ enum RunningHelperBuild {
 
         var code: SecCode?
         let attributes = [kSecGuestAttributePid: processIdentifier] as CFDictionary
-        guard SecCodeCopyGuestWithAttributes(nil, attributes, [], &code) == errSecSuccess, let code else {
-            return .unknown
+        let lookupStatus = SecCodeCopyGuestWithAttributes(nil, attributes, [], &code)
+        guard lookupStatus == errSecSuccess, let code else {
+            return result(forFailedLookupStatus: lookupStatus)
         }
 
         return result(forValidityStatus: SecCodeCheckValidity(code, [], requirement))
     }
 
-    /// An update that moved the previous bundle aside leaves the old helper
-    /// valid but failing the requirement. One that replaced the file in place
-    /// leaves the old helper running code that is no longer on disk. Anything
-    /// else says the check itself failed, not that the helper is old.
+    /// The lookup needs the file the process was started from. An updater that
+    /// moves the previous bundle aside and then deletes it, which is how
+    /// Sparkle installs, leaves the old helper running with no file anywhere,
+    /// and the bundled helper is on disk, so that process is not the bundled
+    /// build's. A reinstall of the identical build done the same way lands
+    /// here too and costs one replacement that changes nothing. A process
+    /// that is gone, or any other failure, says nothing about the build.
+    static func result(forFailedLookupStatus status: OSStatus) -> ClosedLidHelperBuildCheck {
+        status == errSecErrnoBase + ENOENT ? .outdated : .unknown
+    }
+
+    /// An update that moved the previous bundle aside and kept it leaves the
+    /// old helper valid but failing the requirement. One that deleted the
+    /// previous bundle where it was leaves the old helper running code that
+    /// differs from the file now at its path. Anything else says the check
+    /// itself failed, not that the helper is old.
     static func result(forValidityStatus status: OSStatus) -> ClosedLidHelperBuildCheck {
         switch status {
         case errSecSuccess:
