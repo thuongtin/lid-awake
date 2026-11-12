@@ -81,7 +81,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var closedLidError: String? {
         didSet {
             closedLidHelperProbeID = nil
-            if closedLidError == nil {
+            if closedLidError == nil, closedLidHelperNeedsRepair {
                 closedLidHelperNeedsRepair = false
             }
         }
@@ -1214,9 +1214,11 @@ final class AppModel: ObservableObject {
     /// is still installed. And a helper the app could not reach says nothing
     /// about the setting, which stays on: that warning is retired by
     /// `probeClosedLidHelperIfBlocked()` once the helper answers, and clearing
-    /// it here would take the Repair button away and reconnect blindly.
+    /// it here would take the Repair button away and reconnect blindly. An
+    /// error that is already clear is left alone, because assigning an equal
+    /// value still announces a change to every observing view.
     private func clearClosedLidErrorUnlessRemovalPending() {
-        guard !closedLidHelperRemovalRequested, !closedLidHelperNeedsRepair else {
+        guard !closedLidHelperRemovalRequested, !closedLidHelperNeedsRepair, closedLidError != nil else {
             return
         }
 
@@ -1259,6 +1261,15 @@ final class AppModel: ObservableObject {
            let lastVerified = lastClosedLidVerifiedAt,
            0..<closedLidVerifyInterval ~= clock.now.timeIntervalSince(lastVerified) {
             clearClosedLidErrorUnlessRemovalPending()
+            return
+        }
+
+        // Blocked from enabling, with nothing of the app's own to restore: the
+        // read below could only be thrown away, and each one spawns `pmset`.
+        // Whatever lifts the block resets `suppressedClosedLidTarget` or forces
+        // a read, so the next evaluate after that reads again.
+        if desired, !forceStatusRead, !appEnabledClosedLidMode,
+           suppressedClosedLidTarget == true || closedLidHelperRemovalRequested {
             return
         }
 

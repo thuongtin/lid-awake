@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 @testable import LidAwake
 import LidAwakeCore
 import XCTest
@@ -481,6 +482,47 @@ final class AppModelLifecycleTests: XCTestCase {
         XCTAssertNil(harness.model.closedLidError)
         XCTAssertFalse(harness.model.shouldOfferClosedLidHelperRepair)
         XCTAssertEqual(harness.helper.setClosedLidModeRequests, [true, true])
+    }
+
+    func testHoldingWithoutAHelperDoesNotReadPMSetOnEveryEvaluate() async {
+        let harness = AppModelHarness(
+            settings: UserSettings(enabled: true),
+            helperStatus: .notRegistered,
+            closedLidStatus: .disabled
+        )
+        harness.model.start(scheduleTimers: false)
+        await drainMainQueue()
+        let readsAfterStart = harness.closedLidStatusReader.readCount
+        let errorAfterStart = harness.model.closedLidError
+
+        harness.model.evaluate()
+        harness.model.evaluate()
+        harness.model.evaluate()
+        await drainMainQueue()
+
+        XCTAssertEqual(harness.closedLidStatusReader.readCount, readsAfterStart)
+        XCTAssertEqual(harness.model.closedLidError, errorAfterStart)
+        XCTAssertNotNil(errorAfterStart)
+    }
+
+    func testHoldingSteadyStateDoesNotPublishOnEveryEvaluate() async {
+        let harness = AppModelHarness(
+            settings: UserSettings(enabled: true),
+            helperStatus: .enabled,
+            closedLidStatus: .enabled
+        )
+        harness.model.start(scheduleTimers: false)
+        await drainMainQueue()
+
+        var publishCount = 0
+        let subscription = harness.model.objectWillChange.sink { publishCount += 1 }
+        harness.model.evaluate()
+        harness.model.evaluate()
+        harness.model.evaluate()
+        await drainMainQueue()
+        subscription.cancel()
+
+        XCTAssertEqual(publishCount, 0)
     }
 
     func testEnabledModeTheAppDoesNotOwnIsNotRearmed() async {
@@ -1736,17 +1778,16 @@ final class AppModelLifecycleTests: XCTestCase {
 
         let countAfterStart = harness.closedLidStatusReader.readCount
 
-        // Note: the objectWillChange churn assertion was dropped here because it is
-        // flaky due to unrelated published writes outside this plan's scope
-        // (e.g. syncClosedLidHelperStatus() and refreshScreenLockAccessibilityState()
-        // reassign their @Published properties unconditionally on every tick). See
-        // plan 019 step 5 for the documented fallback.
+        var publishCount = 0
+        let subscription = harness.model.objectWillChange.sink { publishCount += 1 }
         harness.model.evaluate()
         harness.model.evaluate()
         harness.model.evaluate()
         await drainMainQueue()
+        subscription.cancel()
 
         XCTAssertEqual(harness.closedLidStatusReader.readCount, countAfterStart)
+        XCTAssertEqual(publishCount, 0)
     }
 
     func testHoldingReverifiesClosedLidModeOnlyAfterTheVerifyInterval() async {
