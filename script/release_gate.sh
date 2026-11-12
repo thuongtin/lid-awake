@@ -4,10 +4,11 @@ set -euo pipefail
 # Sourced by the packaging scripts; it does nothing when run on its own.
 
 # Succeeds only for an https URL that names a host, so "https://" alone or
-# "https:///path" cannot pass for a real server.
+# "https:///path" cannot pass for a real server. Whitespace and control
+# characters are refused anywhere, so a second URL cannot hide after a newline.
 is_https_url_with_host() {
   local pattern='^https://[A-Za-z0-9][A-Za-z0-9.-]*(:[0-9]+)?([/?#]|$)'
-  [[ "$1" =~ $pattern ]]
+  [[ "$1" != *[[:space:][:cntrl:]]* && "$1" =~ $pattern ]]
 }
 
 # Succeeds only for the signed, notarized release build of the app.

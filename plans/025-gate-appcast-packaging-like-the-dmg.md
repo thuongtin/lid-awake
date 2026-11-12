@@ -695,3 +695,161 @@ as Developer ID signed, needed for bundles no real build can be:
 Not run: the positive path with a real stapled Lid Awake DMG (none exists
 locally) and the real `generate_appcast`. Both are still for the maintainer
 to confirm at the next release.
+
+### Second review follow-up (2026-11-12)
+
+An independent adversarial review of `a8623b3` found no blocking issue but
+five gaps. Each was reproduced against `a8623b3` with a stub signer before it
+was fixed:
+
+1. F1: the DMG check only refused top-level names ending in `.app`, `.pkg`,
+   or `.mpkg`. A DMG holding the right `LidAwake.app` plus a top-level
+   directory `Aaa` (another Lid Awake build), `Aaa.app ` (trailing space),
+   `Docs/LidAwake.app`, or `Docs/LidAwake.pkg` reached the signer, exit 0.
+   Sparkle may search the volume recursively and pick one of them.
+2. F2: `SPARKLE_RELEASE_NOTES` was only checked with `-f` and copied next to
+   the archive under the archive's base name with its own extension. A zip
+   passed as release notes replaced or joined the checked archive in
+   `$APPCAST_DIR`, unchecked, and reached the signer, exit 0.
+3. F3: `archive_mount_dir` was assigned only after `hdiutil attach`
+   returned. A SIGTERM right after a successful attach (exit 143) made the
+   EXIT trap run `rm -rf` on the directory holding the mounted volume; the
+   volume and the temporary directory were left behind.
+4. F4: if the detach before the signer failed, the script warned, called the
+   signer with the volume still attached (exit 0, previous appcast deleted),
+   and the trap warned a second time.
+5. F5: `is_https_url_with_host` accepted whitespace and control characters
+   after the host, for example `https://example.com/` followed by a newline
+   and an `http://` URL, a space, a carriage return, `\001`, or `\177`.
+
+What changed:
+
+- F1 (`script/package_appcast.sh`): after the existing check for another
+  `.app`, `.pkg`, or `.mpkg` (unchanged, same message), every top-level
+  entry of the volume must be `LidAwake.app` or `Applications`, and
+  `Applications` must be a symlink whose target is exactly `/Applications`.
+  Anything else exits 2 with `error: <dmg> must hold only LidAwake.app and
+  an Applications symlink to /Applications at its top level`. `LidAwake.app`
+  must still be a real directory (existing check), and its contents are
+  covered by the gate and the CDHash comparison, so no foreign content can
+  sit anywhere on the volume. No metadata entry is allowed, from evidence: a
+  DMG built exactly the way `package_dmg.sh` builds it (`hdiutil create
+  -volname "Lid Awake" -srcfolder ... -ov -format UDZO`, from a `ditto` copy
+  of the notarized 0.1.7 app plus `ln -s /Applications`, unsigned, on macOS
+  27.0.1) and mounted read-only holds exactly `Applications` and
+  `LidAwake.app`, no `.fseventsd`, `.Trashes`, or `.DS_Store`. A UDZO image
+  is compressed and read-only, so nothing can add such entries after it is
+  created, and signing and stapling do not change the volume. If a future
+  `hdiutil` starts adding one, the script refuses with the message above,
+  which fails safe; allow that name then, after checking it holds no app or
+  package.
+- F2: with the gate active, a release notes file whose extension (compared
+  case-insensitively) is not `html`, `md`, or `txt` exits 2 with
+  `error: SPARKLE_RELEASE_NOTES must be an .html, .md, or .txt file for a
+  public appcast: <path>`, after the existence check and before
+  `rm -rf "$APPCAST_DIR"`. A path without an extension is refused too (it
+  used to fail later with exit 1 and no `error:` line, after the previous
+  appcast was deleted). The escape hatch path is unchanged.
+- F3: `archive_mount_dir` is set before `mkdir` and `hdiutil attach`. The
+  cleanup now asks a real mount point test (`is_mount_point`: the directory
+  sits on another device than its parent, from `/usr/bin/stat -f %d`)
+  instead of trusting the variable: it detaches only a mounted volume
+  (falling back to `-force`), and it removes the temporary directory only
+  when nothing is mounted there afterwards. When the attach never happened
+  or failed, the directory is not a mount point, so no detach is attempted
+  and the directory is removed. The test was tried on a missing directory,
+  a plain directory, the same directory with a scratch DMG attached, and
+  after detaching: not, not, mounted, not.
+- F4: the detach before the signer goes through the same function; if a
+  volume is still mounted afterwards the script exits 2 with
+  `error: could not detach <mount>; detach it, then remove <dir>`, before
+  `rm -rf "$APPCAST_DIR"`, and clears both variables so the EXIT trap does
+  not warn again. The trap keeps its single `warning:` for other exits.
+- F5 (`script/release_gate.sh`): `is_https_url_with_host` refuses any value
+  containing a `[:space:]` or `[:cntrl:]` character. It is shared, so both
+  the download prefix and the gate's `SUFeedURL` check use it; their
+  messages are unchanged.
+- `docs/releasing.md`: the `package_appcast.sh` paragraph describes the
+  allowlist, the detach refusal, the URL rule, and the release notes rule.
+
+Deliberately left alone:
+
+- The `Applications` symlink is allowed even though it points outside the
+  volume: `package_dmg.sh` creates it, and requiring its exact target keeps
+  it from pointing anywhere else on the volume or the machine.
+- The DMG volume name is not checked: Sparkle does not use it to pick what
+  it installs.
+- The release notes content is not inspected, and the escape hatch still
+  copies any notes file: the escape hatch is for local tests only.
+- An F3 interrupt still ends with the signal's exit status (143 for
+  SIGTERM), not 2: the run was interrupted, not refused. What the fix
+  guarantees is that nothing stays mounted or left in the temporary
+  directory and the signer is not reached.
+- The earlier note "The DMG check looks only at the top level of the
+  volume" is superseded by the allowlist above.
+
+Cases run on 2026-11-12, every run with the stub signer (prints `REACHED`
+and lists the files it was given), `SPARKLE_APPCAST_DIR` pointing at a
+scratch directory holding a sentinel file, and neither `SPARKLE_PRIVATE_KEY`
+nor `SPARKLE_ED_KEY_FILE` set. `dist/` held a `ditto` copy of the notarized
+0.1.7 app; "0.1.8" is a copy of the notarized 0.1.8 release zip. Stubs: the
+same stub xcrun as above (answers `stapler validate <path>.dmg` only, which
+every DMG case except the "real xcrun" one depends on); a stub hdiutil whose
+`detach` always fails (F4); a stub hdiutil that attaches for real and then
+sends SIGTERM to the script (F3); a stub codesign that reports any bundle as
+Developer ID signed and refuses `--sign`, with a stub xcrun that answers
+every `stapler validate` (gate cases only); a stub hdiutil that refuses
+everything (all `package_dmg.sh` runs, so none could write or sign a DMG).
+
+| Case | `a8623b3` | Now |
+|------|-----------|-----|
+| F1: extra top-level dir `Aaa` holding 0.1.8 | 0, reached | 2, not reached |
+| F1: top-level `Aaa.app ` (trailing space) | 0, reached | 2, not reached |
+| F1: `Docs/LidAwake.app` | 0, reached | 2, not reached |
+| F1: `Docs/LidAwake.pkg` | 0, reached | 2, not reached |
+| F1: `Applications` symlink to `/tmp` | 0, reached | 2, not reached |
+| F1: `Applications` as a real directory | 0, reached | 2, not reached |
+| F1: top-level `.DS_Store` | 0, reached | 2, not reached |
+| F1: `.fseventsd/LidAwake.app` | 0, reached | 2, not reached |
+| F2: notes = zip of the 0.1.8 build | 0, reached | 2, not reached |
+| F2: notes file without extension | 1, no `error:`, appcast deleted | 2, not reached |
+| F2: `notes.HTML` | 0, reached, copied | same |
+| F2: zip notes with the escape hatch | 0, reached | same |
+| F3: SIGTERM right after attach | 143, volume and dir left | 143, nothing left |
+| F4: detach fails before signer | 0, reached, two warnings | 2, one `error:`, not reached |
+| F5: prefix with newline then `http://` URL | 0, reached | 2, not reached |
+| F5: prefix with a space, with a tab | 0, reached | 2, not reached |
+| F5: `SUFeedURL` with newline then `http://` URL (stub codesign) | passed the gate | 2, gate message |
+
+Unchanged, with output byte-for-byte identical between `a8623b3` and now
+(the outputs were diffed): zip of the real notarized 0.1.7 (0, reached);
+zip plus `notes.md` (0, copied); missing release notes, also with the escape
+hatch (2, appcast kept); prefixes `http://example.com/`, `https://`,
+`https:///path` (2); zip holding 0.1.8, extra `.command`, second app,
+truncated zip, garbage zip, `LidAwake.app` symlink (2 each); DMG made the
+`package_dmg.sh` way (0, reached); the same DMG with the real xcrun (2, no
+ticket); DMG holding 0.1.8, only another app, no app, a second app, a
+`.PKG`, a `LidAwake.app` symlink to `/Applications/LidAwake.app`,
+unmountable DMG (2 each); escape hatch with a DMG holding another app and
+with a staged debug bundle and its zip (0, reached); debug bundle without
+the escape hatch (2); gate with an empty key, a whitespace key, a missing
+key, `SUFeedURL` `https://`, `https:///appcast.xml`, `http://`, missing
+(2 each). A `LidAwake.app` symlink into a top-level directory of the volume
+is still refused, now by the allowlist message. `./script/package_dmg.sh`
+with the debug bundle and with the gate cases above: 2 each, no DMG written,
+output identical except the newline `SUFeedURL`, which `a8623b3` let past
+the gate (stopped there only by the refusing hdiutil stub) and which is now
+refused by the gate. From a copy of the repository whose path contains a
+space: zip and DMG of the same build (0, reached), of another build (2), DMG
+with an extra `Aaa` (2), detach failure (2), SIGTERM after attach (143,
+nothing left). After every DMG case no scratch volume was attached
+(`hdiutil info`) and no temporary directory was left, except the F4 cases,
+where the script deliberately leaves the still mounted volume and its
+directory; the test harness detached and removed them.
+
+`shellcheck script/*.sh scripts/check.sh scripts/verify.sh`: exit 0.
+`SIGNING_IDENTITY=- ./scripts/check.sh`: exit 0.
+
+Not run: the real `generate_appcast`, a real stapled Lid Awake DMG (none
+exists locally), and a real Ctrl-C from a terminal (SIGINT to the whole
+process group); the SIGTERM stub stands in for it.

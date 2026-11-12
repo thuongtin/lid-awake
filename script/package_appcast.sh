@@ -67,16 +67,35 @@ bundle_cdhash() {
 archive_check_dir=""
 archive_mount_dir=""
 
+# Succeeds when the directory is the root of a mounted volume: it then sits
+# on another device than its parent.
+is_mount_point() {
+  local dir_device parent_device
+  dir_device="$(/usr/bin/stat -f %d "$1" 2>/dev/null)" || return 1
+  parent_device="$(/usr/bin/stat -f %d "$1/.." 2>/dev/null)" || return 1
+  [[ "$dir_device" != "$parent_device" ]]
+}
+
+# Detaches the archive's volume if one is mounted at the mount point. Fails
+# only when a volume is still mounted there afterwards.
+detach_archive_mount() {
+  if [[ -n "$archive_mount_dir" ]] && is_mount_point "$archive_mount_dir"; then
+    hdiutil detach "$archive_mount_dir" >/dev/null 2>&1 \
+      || hdiutil detach -force "$archive_mount_dir" >/dev/null 2>&1 \
+      || true
+    if is_mount_point "$archive_mount_dir"; then
+      return 1
+    fi
+  fi
+  archive_mount_dir=""
+}
+
 # Detaches the archive's volume before removing the directory it is mounted
 # in. If the volume cannot be detached, the directory is left alone.
 cleanup_archive_check() {
-  if [[ -n "$archive_mount_dir" ]]; then
-    if ! hdiutil detach "$archive_mount_dir" >/dev/null 2>&1 \
-      && ! hdiutil detach -force "$archive_mount_dir" >/dev/null 2>&1; then
-      echo "warning: could not detach $archive_mount_dir; detach it, then remove $archive_check_dir" >&2
-      return
-    fi
-    archive_mount_dir=""
+  if ! detach_archive_mount; then
+    echo "warning: could not detach $archive_mount_dir; detach it, then remove $archive_check_dir" >&2
+    return
   fi
   if [[ -n "$archive_check_dir" ]]; then
     rm -rf "$archive_check_dir"
@@ -98,14 +117,16 @@ if [[ "$ALLOW_NON_DEVELOPER_ID_RELEASE" != "1" ]]; then
       exit 2
     fi
 
-    mkdir "$archive_check_dir/mount"
+    # Set before attaching, so an interrupt during or right after the attach
+    # still detaches the volume instead of removing files under it.
+    archive_mount_dir="$archive_check_dir/mount"
+    mkdir "$archive_mount_dir"
     if ! attach_output="$(hdiutil attach -readonly -nobrowse -noautoopen \
-      -mountpoint "$archive_check_dir/mount" "$dmg" 2>&1 </dev/null)"; then
+      -mountpoint "$archive_mount_dir" "$dmg" 2>&1 </dev/null)"; then
       echo "error: $dmg could not be mounted read-only" >&2
       printf '%s\n' "$attach_output" >&2
       exit 2
     fi
-    archive_mount_dir="$archive_check_dir/mount"
 
     # package_dmg.sh puts the app next to an Applications symlink. Another app
     # or an installer package on the volume could be what Sparkle installs.
@@ -115,6 +136,23 @@ if [[ "$ALLOW_NON_DEVELOPER_ID_RELEASE" != "1" ]]; then
       echo "error: $dmg must hold no app or installer package other than LidAwake.app" >&2
       exit 2
     fi
+
+    # Sparkle may search the whole volume, so nothing may sit next to the app
+    # except that symlink. A volume made the package_dmg.sh way holds no
+    # metadata entries (.fseventsd, .Trashes, .DS_Store), and a compressed
+    # read-only image cannot gain any after it is created.
+    while IFS= read -r -d '' volume_entry; do
+      case "${volume_entry##*/}" in
+        LidAwake.app) continue ;;
+        Applications)
+          if [[ -L "$volume_entry" && "$(readlink "$volume_entry")" == /Applications ]]; then
+            continue
+          fi
+          ;;
+      esac
+      echo "error: $dmg must hold only LidAwake.app and an Applications symlink to /Applications at its top level" >&2
+      exit 2
+    done < <(find "$archive_mount_dir" -mindepth 1 -maxdepth 1 -print0)
     archive_app="$archive_mount_dir/LidAwake.app"
   else
     if ! ditto -x -k "$zip" "$archive_check_dir/zip"; then
@@ -154,7 +192,15 @@ if [[ "$ALLOW_NON_DEVELOPER_ID_RELEASE" != "1" ]]; then
     exit 2
   fi
 
-  # Detach now: the signing tool reads the DMG itself.
+  # Detach now: the signing tool reads the DMG itself, and must not run while
+  # the volume is still attached.
+  if ! detach_archive_mount; then
+    echo "error: could not detach $archive_mount_dir; detach it, then remove $archive_check_dir" >&2
+    # Leave both in place without a second warning from the EXIT trap.
+    archive_mount_dir=""
+    archive_check_dir=""
+    exit 2
+  fi
   cleanup_archive_check
 fi
 
@@ -172,6 +218,20 @@ fi
 if [[ -n "$SPARKLE_RELEASE_NOTES" && ! -f "$SPARKLE_RELEASE_NOTES" ]]; then
   echo "error: SPARKLE_RELEASE_NOTES does not exist: $SPARKLE_RELEASE_NOTES" >&2
   exit 2
+fi
+
+# The notes are copied next to the archive under its name with their own
+# extension, and the signing tool reads every archive in that directory: a
+# notes file with an archive extension would publish a second, unchecked one.
+if [[ "$ALLOW_NON_DEVELOPER_ID_RELEASE" != "1" && -n "$SPARKLE_RELEASE_NOTES" ]]; then
+  notes_extension="$(tr '[:upper:]' '[:lower:]' <<<"${SPARKLE_RELEASE_NOTES##*.}")"
+  case "$notes_extension" in
+    html | md | txt) ;;
+    *)
+      echo "error: SPARKLE_RELEASE_NOTES must be an .html, .md, or .txt file for a public appcast: $SPARKLE_RELEASE_NOTES" >&2
+      exit 2
+      ;;
+  esac
 fi
 
 rm -rf "$APPCAST_DIR"
