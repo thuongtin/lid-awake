@@ -4,6 +4,15 @@ All notable changes to Lid Awake will be documented in this file.
 
 The format follows dated release sections after the first tagged release.
 
+## 0.1.9 - 2026-11-12
+
+- Fixed a missing notification when a hold ends because the power adapter is unplugged with "only when plugged in" on, or because macOS refuses the power assertion.
+- Fixed a slow closed-lid change being reported as a lost helper with a Repair offer instead of the real `pmset` error. The helper now answers the app before its restore watchdog does its bookkeeping.
+- Kept the Repair offer on screen when re-arming the helper watchdog fails, instead of clearing the warning and resending the change.
+- Stopped running `pmset` and republishing unchanged state on every evaluation tick while Keep Awake is blocked or already holding.
+- Bounded the code signing status check with a timeout so it reports an unavailable signature instead of hanging.
+- Required appcast packaging to pass the same signed, notarized release gate as the DMG, and to confirm that the archive it points at holds the stapled release build and nothing else.
+
 ## 0.1.8 - 2026-10-13
 
 - Added a helper watchdog that restores app-owned closed-lid mode after the app crashes or is force quit, and retries failed restores.
