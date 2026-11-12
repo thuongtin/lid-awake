@@ -44,7 +44,7 @@ và cập nhật dòng status của plan trong file này khi hoàn tất.
 | 022 | Keep the Repair offer after a failed watchdog re-arm | P1 | S | working-tree `clock.now` edits committed | TODO |
 | 025 | Gate appcast packaging the same way as the DMG | P1 | S | - | TODO |
 | 023 | Stop redundant pmset reads and SwiftUI publishes on the 5 second tick | P2 | S | 022 | TODO |
-| 026 | Notify whenever a hold is released | P2 | S | - | TODO |
+| 026 | Notify whenever a hold is released | P2 | S | - | DONE |
 | 024 | Answer the app before the helper watchdog reads pmset | P2 | S | - (manual QA by maintainer afterwards) | TODO |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED with one-line reason |

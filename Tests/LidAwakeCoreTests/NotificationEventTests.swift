@@ -41,4 +41,26 @@ final class NotificationEventTests: XCTestCase {
         XCTAssertEqual(NotificationEvent.forTransition(from: hold, to: .inactive), .holdReleased)
         XCTAssertNil(NotificationEvent.forTransition(from: .watching, to: .watching))
     }
+
+    func testEveryReleaseOfAHoldNotifies() {
+        XCTAssertEqual(NotificationEvent.forTransition(from: hold, to: .blocked(.notPluggedIn)), .holdReleased)
+        XCTAssertEqual(
+            NotificationEvent.forTransition(from: hold, to: .blocked(.assertionFailed("denied"))),
+            .holdReleased
+        )
+    }
+
+    func testAHoldReleasedByABatteryGuardrailNamesTheGuardrail() {
+        XCTAssertEqual(
+            NotificationEvent.forTransition(from: hold, to: .blocked(.batteryCutoff(percent: 19, cutoff: 20))),
+            .batteryCutoff
+        )
+        XCTAssertEqual(NotificationEvent.forTransition(from: hold, to: .blocked(.lowPowerMode)), .lowPowerBlocked)
+    }
+
+    func testABlockThatNeverHeldDoesNotReportARelease() {
+        XCTAssertNil(NotificationEvent.forTransition(from: .watching, to: .blocked(.notPluggedIn)))
+        XCTAssertNil(NotificationEvent.forTransition(from: .blocked(.notPluggedIn), to: .blocked(.notPluggedIn)))
+        XCTAssertNil(NotificationEvent.forTransition(from: .blocked(.notPluggedIn), to: .watching))
+    }
 }

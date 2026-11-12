@@ -19,8 +19,6 @@ public extension NotificationEvent {
             return nil
         case (_, .holding):
             return .holdEngaged
-        case (.holding, .watching), (.holding, .inactive):
-            return .holdReleased
         case (.blocked(.batteryCutoff), .blocked(.batteryCutoff)):
             return nil
         case (_, .blocked(.batteryCutoff)):
@@ -29,6 +27,11 @@ public extension NotificationEvent {
             return nil
         case (_, .blocked(.lowPowerMode)):
             return .lowPowerBlocked
+        case (.holding, _):
+            // Every other way out of a hold, so that a release with no
+            // notification of its own, such as unplugging the power adapter,
+            // is not silent after the hold itself was announced.
+            return .holdReleased
         default:
             return nil
         }
