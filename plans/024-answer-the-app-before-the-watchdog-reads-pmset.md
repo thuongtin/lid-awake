@@ -349,14 +349,19 @@ problem. Its corrections to the timing budget and to when the watchdog reads
 of replying first, which this plan accepts:
 
 1. The read's latency is not removed, it moves behind the reply. A request
-   the app sends right after the reply to a failed change (for example the
-   disable sent when the user quits, or the disable that precedes Repair)
-   waits on `commandQueue` behind the watchdog's read, and can pass the app's
-   4 s deadline, so the app reports a timeout for that next request. Accepted
-   because it is safe and not new: the helper still runs the queued disable
-   and then disarms, a failed disable leaves the watch on the app's PID in
-   place, and the same wait already existed under the old order whenever the
-   app had timed out on the first request while the helper was still reading.
+   sent right after the reply to a failed change (for example the disable
+   the app sends when the user quits, or the disable that the command-line
+   `--helper-repair`, `ClosedLidHelperRemoval.repairHelper`, sends once the
+   app has quit) waits on `commandQueue` behind the watchdog's read, and can
+   pass the 4 s deadline, so that next request is reported as a timeout. The
+   in-app Repair is not an example: a reply that `pmset` failed sets
+   `closedLidHelperNeedsRepair` to false, so Repair is not offered then.
+   Accepted because it is safe and not new: the helper still runs the queued
+   disable and then disarms, a failed disable leaves the watch on the app's
+   PID in place, a command-line repair whose restore timed out goes on to
+   restore through the newly registered helper, and the same wait already
+   existed under the old order whenever the client had timed out on the first
+   request while the helper was still reading.
 2. On the paths that read, the window between the reply and arming the watch
    is longer by the duration of the read, so a client that exits right after
    the reply (for example the command-line repair) could in theory have its
@@ -373,13 +378,29 @@ of replying first, which this plan accepts:
    not, however, show that the false timeout is gone.
 
 Suggested extra manual check for the maintainer (a suggestion only, not part
-of the checklist in `docs/power-model.md`): on a local, never-shipped build of
-the helper whose `PMSetService` stand-in runs the real `pmset -a disablesleep 1`
-but then reports it as failed, and delays the status read by about 3 s,
-enable closed-lid mode from the app. The app should show the `pmset` failure
-message within 4 s instead of "Lid Awake Helper did not respond". Then
+of the checklist in `docs/power-model.md`). Use a local, never-shipped build
+of the helper with two temporary changes:
+
+- its enable runs the real `pmset -a disablesleep 1` and then reports it as
+  failed with a distinctive message that is not a permission failure (a
+  permission message is shown to the user as an approval prompt instead);
+- the watchdog's `readClosedLidStatus` closure in `LidAwakeHelperMain.swift`
+  sleeps about 5 s in Swift before calling `pmsetService.readClosedLidStatus()`.
+  The delay must be added in Swift around the read, not inside a slow `pmset`
+  stand-in process, because the 2 s status read timeout would cut a slow
+  process short. Delay only the watchdog's closure: the helper's XPC
+  `readClosedLidStatus`, which the app uses to probe the connection, calls the
+  same service method.
+
+Enable closed-lid mode from the app. With the reply first, the app shows the
+distinctive failure message almost at once. With the old order, the reply
+would come only after the 5 s read, past the app's 4 s XPC deadline, so the
+app would show "Lid Awake Helper did not respond" and offer Repair instead.
+Seeing the failure message is what shows the false timeout is gone. Then
 `kill -9` the app as soon as that message appears, while the helper is still
-reading: within a few seconds `pmset -g` should report `SleepDisabled 0` and
-the helper log should show the restore line, which shows that a watch armed
-after the client exited still restores. Reinstall the normal signed helper
-afterwards.
+in its 5 s read: when the read ends it reports the mode as on, the watchdog
+arms a watch for the app's PID that is already gone, and the watch fires
+right after. Within about 6 s of the message `pmset -g` should report
+`SleepDisabled 0` and the helper log should show the restore line, which
+shows that a watch armed after the client exited still restores. Reinstall
+the normal signed helper afterwards.
