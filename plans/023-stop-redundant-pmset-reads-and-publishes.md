@@ -422,9 +422,15 @@ Stop and report back (do not improvise) if:
   polling and never recovers. Today those paths are
   `clearClosedLidReadinessBlockIfPossible`, `finishClosedLidHelperProbe`, a
   successful change, and the forced reads.
-- Reviewer focus: the `!appEnabledClosedLidMode` condition in step 3. Dropping
-  it would stop the watchdog re-arm and the 30 second verification for a mode
-  the app owns.
+- Reviewer focus: the `!appEnabledClosedLidMode` condition in step 3. While
+  the app owns closed-lid mode but is blocked or has a helper removal pending,
+  it keeps the status read going (every 30 seconds while the mode is on). That
+  read refreshes `closedLidStatus` and `lastClosedLidVerifiedAt`, and once
+  `pmset` reports the mode on it clears an error that does not need Repair,
+  unless a removal is pending. It does not guard the watchdog re-arm:
+  `rearmClosedLidRestoreWatchdogIfNeeded` already declines in both states. No
+  test pins the condition today, so an edit that drops it keeps the suite
+  green.
 - Deferred follow-ups, not part of this plan: pausing the evaluate and
   side-effects timers while Keep Awake is off, and replacing the one-second
   lid and display polling with IOKit notifications.
