@@ -33,8 +33,9 @@ does next depends on which failure it sees:
   helper itself is broken, stops retrying, and offers the Repair button.
 
 When `pmset` is slow, the helper currently does its own bookkeeping, which can
-include a second `pmset` call, before it answers. The two calls together can
-take longer than the app's four seconds. The app then reports a broken helper
+include a status read of one or two more `pmset` calls, before it answers. The
+change and the read together can take longer than the app's four seconds. The
+app then reports a helper that did not respond
 and asks the user to repair a helper that is working, and the real `pmset`
 error is never shown. Answering first removes that: the bookkeeping does not
 need to happen before the reply.
@@ -84,8 +85,18 @@ func setClosedLidMode(enabled: Bool, reply: @escaping (Bool, String?) -> Void) {
 private let commandQueue = DispatchQueue(label: "\(LidAwakeHelperConstants.machServiceName).commands")
 ```
 
-The watchdog bookkeeping reads `pmset` on the two failure paths
+The watchdog bookkeeping reads `pmset` on two paths only
 (`Sources/LidAwakeCore/ClosedLidRestoreWatchdog.swift` lines 97-123):
+
+- an enable that `pmset` reported as failed (outcome `.failed`, from
+  `PMSetError.commandFailed`). An enable that timed out has the outcome
+  `.unknown`, arms the watch without a read, and so adds no read time;
+- a disable that did not succeed (outcome `.failed` or `.unknown`, so a
+  timed-out disable counts too) while no watch is armed and no restore is
+  pending. A disable while a watch is armed or a restore is pending does not
+  read.
+
+A successful enable or disable never reads.
 
 ```swift
 public func closedLidModeChangeAttempted(
@@ -127,11 +138,27 @@ static let terminationGracePeriod: TimeInterval = 0.5
 private let xpcResponseTimeout: TimeInterval = 4
 ```
 
-Worst case today for a change that hangs: 3.0 s (change timeout) + 0.5 s
-(termination grace) = 3.5 s, then the watchdog read: up to 2.0 s + 0.5 s. That
-is up to 6.0 s before `reply` runs, against a 4 s deadline. The comment on
-`closedLidChangeTimeout` states the intent ("answer inside the app's XPC
-deadline"); the bookkeeping order breaks it.
+The change itself takes at most about 3.5 s: 3.0 s (change timeout) + 0.5 s
+(termination grace when `pmset` hangs, or the bound on draining its pipes
+when it exits just before the timeout).
+
+The watchdog's status read, `PMSetService.readClosedLidStatus`, can run two
+`pmset` processes in sequence. It first runs `pmset -g`, bounded by 2.0 s
+(status read timeout) + 0.5 s (termination grace or pipe drain bound). If
+that call times out, the read ends there with `.notReported`, after about
+2.5 s. If it exits in time but fails or reports no `SleepDisabled` line, the
+read then runs `pmset -g custom`, bounded the same way. So one read can take
+up to about 5.0 s (the review measured 3.92 s with hanging stand-in
+processes).
+
+Worst case today, on a path that reads (see above): up to about 3.5 s for the
+change plus about 5.0 s for the read, so up to about 8.5 s before `reply`
+runs, against a 4 s deadline. With the reply first, it goes out after at most
+about 3.5 s (the review measured 3.0 s). That leaves roughly 0.5 s of the
+app's 4 s for the on-demand launch of the helper, the client code-signing
+check, and XPC overhead. That margin has not been verified on a signed build.
+The comment on `closedLidChangeTimeout` states the intent ("answer inside the
+app's XPC deadline"); the bookkeeping order breaks it.
 
 Why the reorder is safe (checked while writing this plan; re-check each point
 against the live code before you edit):
@@ -141,9 +168,10 @@ against the live code before you edit):
    the bookkeeping for this request has run.
 2. Successful enable, then the app dies between the reply and `arm`:
    `DispatchProcessExitWatch` (`ClosedLidRestoreWatchdog.swift`, near the end
-   of the file) checks `kill(processID, 0)` right after it starts watching and
-   fires at once for a process that is already gone, so the restore still
-   happens.
+   of the file) checks `kill(processID, 0)` right after it starts watching
+   and, for a process that is already gone, queues the exit handler on
+   `commandQueue` with `queue.async`. It runs after the current block, not at
+   once, and the restore still happens.
 3. Successful disable, then the app exits between the reply and `disarm`: the
    exit handler is delivered on `commandQueue`, so it runs after this block,
    when `disarm()` has already invalidated the watch.
@@ -214,9 +242,9 @@ clientProcessID {` through the `reply(...)` line) with:
 
 ```swift
             // Answer before recording the attempt: the watchdog may read
-            // `pmset` to decide whether to watch the client, and a slow read
-            // on top of a slow change would outlast the app's XPC deadline, so
-            // the app would report a lost helper instead of what `pmset` said.
+            // `pmset`, and a slow read on top of a slow change could pass the
+            // app's XPC deadline, so the app would report a helper that did not
+            // respond instead of what `pmset` said.
             reply(changeError == nil, changeError?.localizedDescription)
 
             if let clientProcessID {
@@ -312,3 +340,46 @@ Stop and report back (do not improvise) if:
   launchd restarts it while the app keeps running, because the app only
   re-arms at its own launch. That needs a design decision (see the fourth
   audit notes in `plans/README.md`).
+
+### Review notes (2026-11-12)
+
+An independent review of the implementing commit `bcb07fb` found no blocking
+problem. Its corrections to the timing budget and to when the watchdog reads
+`pmset` are folded into "Current state" above. It also named these trade-offs
+of replying first, which this plan accepts:
+
+1. The read's latency is not removed, it moves behind the reply. A request
+   the app sends right after the reply to a failed change (for example the
+   disable sent when the user quits, or the disable that precedes Repair)
+   waits on `commandQueue` behind the watchdog's read, and can pass the app's
+   4 s deadline, so the app reports a timeout for that next request. Accepted
+   because it is safe and not new: the helper still runs the queued disable
+   and then disarms, a failed disable leaves the watch on the app's PID in
+   place, and the same wait already existed under the old order whenever the
+   app had timed out on the first request while the helper was still reading.
+2. On the paths that read, the window between the reply and arming the watch
+   is longer by the duration of the read, so a client that exits right after
+   the reply (for example the command-line repair) could in theory have its
+   PID reused by another process before the watch is armed. Accepted because
+   the helper already identifies its client by PID, the window grows only on
+   paths that read, and macOS hands out PIDs sequentially, so reuse within a
+   few seconds is very unlikely.
+3. Manual QA items 9, 10, 11, 13 and 14 in `docs/power-model.md` do not
+   exercise the window between the reply and arming, and none makes `pmset`
+   slow or failing. The watchdog unit tests cover the watchdog logic with
+   fakes, not the ordering inside `HelperService`. Accepted because these
+   items still confirm that normal behaviour did not regress, and the ordering
+   itself is a four-line change that can be checked by reading it; they do
+   not, however, show that the false timeout is gone.
+
+Suggested extra manual check for the maintainer (a suggestion only, not part
+of the checklist in `docs/power-model.md`): on a local, never-shipped build of
+the helper whose `PMSetService` stand-in runs the real `pmset -a disablesleep 1`
+but then reports it as failed, and delays the status read by about 3 s,
+enable closed-lid mode from the app. The app should show the `pmset` failure
+message within 4 s instead of "Lid Awake Helper did not respond". Then
+`kill -9` the app as soon as that message appears, while the helper is still
+reading: within a few seconds `pmset -g` should report `SleepDisabled 0` and
+the helper log should show the restore line, which shows that a watch armed
+after the client exited still restores. Reinstall the normal signed helper
+afterwards.
