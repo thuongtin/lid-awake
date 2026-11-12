@@ -77,6 +77,12 @@ final class HelperService: NSObject, NSXPCListenerDelegate, LidAwakeHelperXPCPro
                 changeError = error
             }
 
+            // Answer before recording the attempt: the watchdog may read
+            // `pmset` to decide whether to watch the client, and a slow read
+            // on top of a slow change would outlast the app's XPC deadline, so
+            // the app would report a lost helper instead of what `pmset` said.
+            reply(changeError == nil, changeError?.localizedDescription)
+
             if let clientProcessID {
                 restoreWatchdog.closedLidModeChangeAttempted(
                     enabled: enabled,
@@ -84,7 +90,6 @@ final class HelperService: NSObject, NSXPCListenerDelegate, LidAwakeHelperXPCPro
                     clientProcessID: clientProcessID
                 )
             }
-            reply(changeError == nil, changeError?.localizedDescription)
         }
     }
 }

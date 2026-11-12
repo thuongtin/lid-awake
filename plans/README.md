@@ -45,7 +45,7 @@ và cập nhật dòng status của plan trong file này khi hoàn tất.
 | 025 | Gate appcast packaging the same way as the DMG | P1 | S | - | TODO |
 | 023 | Stop redundant pmset reads and SwiftUI publishes on the 5 second tick | P2 | S | 022 | TODO |
 | 026 | Notify whenever a hold is released | P2 | S | - | DONE |
-| 024 | Answer the app before the helper watchdog reads pmset | P2 | S | - (manual QA by maintainer afterwards) | TODO |
+| 024 | Answer the app before the helper watchdog reads pmset | P2 | S | - (manual QA by maintainer afterwards) | DONE, pending manual QA items 9, 10, 11, 13, 14 |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED with one-line reason |
 REJECTED with one-line rationale.
