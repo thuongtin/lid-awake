@@ -3,6 +3,13 @@ set -euo pipefail
 
 # Sourced by the packaging scripts; it does nothing when run on its own.
 
+# Succeeds only for an https URL that names a host, so "https://" alone or
+# "https:///path" cannot pass for a real server.
+is_https_url_with_host() {
+  local pattern='^https://[A-Za-z0-9][A-Za-z0-9.-]*(:[0-9]+)?([/?#]|$)'
+  [[ "$1" =~ $pattern ]]
+}
+
 # Succeeds only for the signed, notarized release build of the app.
 #
 # A public artifact wraps whatever sits in dist/ at the time, and
@@ -11,7 +18,7 @@ set -euo pipefail
 require_public_release_bundle() {
   local app_bundle="$1"
   local info_plist="$app_bundle/Contents/Info.plist"
-  local signing_info build_configuration feed_url
+  local signing_info build_configuration public_ed_key feed_url
 
   if ! codesign --verify --deep --strict "$app_bundle" 2>/dev/null; then
     echo "error: $app_bundle does not pass codesign --verify --deep --strict" >&2
@@ -41,8 +48,12 @@ require_public_release_bundle() {
     return 2
   fi
 
-  if ! /usr/libexec/PlistBuddy -c 'Print :SUPublicEDKey' "$info_plist" >/dev/null 2>&1; then
+  if ! public_ed_key="$(/usr/libexec/PlistBuddy -c 'Print :SUPublicEDKey' "$info_plist" 2>/dev/null)"; then
     echo "error: $app_bundle has no SUPublicEDKey, so it cannot verify updates" >&2
+    return 2
+  fi
+  if [[ -z "${public_ed_key//[[:space:]]/}" ]]; then
+    echo "error: $app_bundle has an empty SUPublicEDKey, so it cannot verify updates" >&2
     return 2
   fi
 
@@ -52,6 +63,11 @@ require_public_release_bundle() {
   if [[ "$feed_url" != https://* ]]; then
     echo "error: $app_bundle does not read its update feed over https (SUFeedURL: ${feed_url:-missing})" >&2
     echo "hint: restage without SPARKLE_ALLOW_INSECURE_FEED, then sign, notarize, and staple it again" >&2
+    return 2
+  fi
+  if ! is_https_url_with_host "$feed_url"; then
+    echo "error: $app_bundle has no valid host in its update feed URL (SUFeedURL: $feed_url)" >&2
+    echo "hint: restage with a full SPARKLE_FEED_URL, then sign, notarize, and staple it again" >&2
     return 2
   fi
 }

@@ -589,3 +589,109 @@ Stop and report back (do not improvise) if:
   `SPARKLE_ALLOW_INSECURE_FEED` when `CONFIGURATION=release`, and replacing
   the `hdiutil create` call in `package_dmg.sh`, which prints a deprecation
   warning on the current macOS.
+
+### Review follow-up (2026-11-12)
+
+An independent review of `52a8fc5` found these gaps. Each one was reproduced
+against the scripts as of `2f13ba3` (stub signer throughout) before it was
+fixed:
+
+1. The DMG branch only ran `xcrun stapler validate` on the DMG and never
+   looked inside it: a DMG holding only another app reached the signer, exit
+   0, previous appcast deleted.
+2. The archive was not tied to `dist/LidAwake.app`: a zip holding the real
+   0.1.8 build under the 0.1.7 name reached the signer, exit 0.
+3. A missing `SPARKLE_RELEASE_NOTES` file was refused only after
+   `rm -rf "$APPCAST_DIR"`, so the refusal deleted the previous appcast.
+4. A corrupt zip made `ditto` fail under `set -e`: exit 1 and no `error:`
+   line.
+5. A zip with extra top-level entries next to `LidAwake.app` was accepted.
+6. The https checks only looked at the prefix: `SPARKLE_DOWNLOAD_URL_PREFIX=https://`
+   reached the signer, and the gate accepted `SUFeedURL=https://` and an
+   empty `SUPublicEDKey`.
+7. The archive is checked at one path and copied again from that path later.
+
+What changed:
+
+- A (findings 1, 2): with the gate active, the script now locates the
+  `LidAwake.app` inside whichever archive it picked, runs the gate on it, and
+  requires its CDHash (from `codesign -dv --verbose=4`) to equal the CDHash
+  of `dist/LidAwake.app`; a mismatch names the archive and both versions and
+  exits 2. The DMG keeps its `stapler validate` check first, is then mounted
+  with `hdiutil attach -readonly -nobrowse -noautoopen` at a mount point
+  inside the script's temporary directory, and is detached again right after
+  the checks (the signer reads the DMG itself). CDHash equality was confirmed
+  on the real notarized 0.1.7 build: a `ditto` copy, a `ditto -c -k
+  --keepParent` zip round trip, and a DMG built with `hdiutil create
+  -srcfolder` all report the original CDHash.
+- B (finding 3): the release notes existence check now runs before
+  `rm -rf "$APPCAST_DIR"`, with or without the escape hatch. The copy of the
+  notes stays where it was.
+- C (finding 4): a zip that `ditto` cannot extract is refused with an
+  `error:` line and exit 2.
+- D (finding 5): the extracted zip must hold exactly one top-level entry,
+  `LidAwake.app`. `package_dmg.sh` puts `LidAwake.app` and an `Applications`
+  symlink on the volume, so the DMG check refuses any other top-level `.app`,
+  `.pkg`, or `.mpkg` (case-insensitive) and tolerates everything else. In
+  both archives `LidAwake.app` must be a real directory, not a symlink.
+- E (finding 6): the gate now also refuses an empty or whitespace-only
+  `SUPublicEDKey` and an `SUFeedURL` with no valid host after `https://`; the
+  download prefix must be an https URL with a host. The shared test is
+  `is_https_url_with_host` in `release_gate.sh`. The existing gate messages
+  for a missing key and for a non-https or missing feed are unchanged, so
+  `package_dmg.sh` behaves the same for every case it already refused.
+- The script still has exactly one `trap ... EXIT`; it detaches the mount if
+  one is attached (falling back to `hdiutil detach -force`) and removes the
+  temporary directory. If the volume cannot be detached it leaves the
+  directory in place and prints a warning instead of removing files under a
+  mounted volume.
+
+Deliberately left alone:
+
+- Finding 7: not restructured. The only actor who can swap the archive
+  between the check and the copy has write access to the repository's
+  `dist/` directory and could equally change the script itself.
+- The feed URL and public key are not pinned to the repository defaults:
+  staging lets the maintainer override both, and changing that contract is
+  the maintainer's decision.
+- The gate's hint for a missing ticket still says `xcrun stapler staple
+  dist/LidAwake.app` even when the app being checked is the one inside an
+  archive. The `error:` line above it names the real path and the caller's
+  own hint follows, so it was left as is to keep `package_dmg.sh` output
+  byte-for-byte.
+- The DMG check looks only at the top level of the volume; nested content is
+  not inspected.
+
+Cases run on 2026-11-12 (stub signer and a scratch `SPARKLE_APPCAST_DIR` with
+a sentinel file for every run). "Stub xcrun" means a stub that only answers
+`stapler validate` for a `.dmg` (no stapled Lid Awake DMG was available) and
+passes everything else, including the gate's checks on the app inside the
+DMG, to the real tool. "Stub codesign" means a stub that reports any bundle
+as Developer ID signed, needed for bundles no real build can be:
+
+- Real notarized 0.1.7 in `dist/`, zip rebuilt from it: exit 0, reached.
+- Zip holding the real notarized 0.1.8 under the 0.1.7 name: exit 2.
+- Zip with an extra `.command`, zip with a second `.app`, truncated zip,
+  garbage zip: exit 2 each.
+- DMG (stub xcrun) holding the same app as `dist/`: exit 0, reached. DMG
+  holding 0.1.8, only another app, no app, a second app, a `.pkg`, or a
+  `LidAwake.app` symlink: exit 2 each. Unmountable DMG: exit 2. Same DMG
+  with the real xcrun (no ticket on the DMG): exit 2. After every DMG case
+  no test volume was attached and no temporary directory was left.
+- Missing release notes: exit 2, previous appcast kept (also with the escape
+  hatch). Existing notes: exit 0, copied.
+- Prefix `https://`, `http://example.com/`, `https:///path`: exit 2 each.
+  Default prefix and `https://example.com/dl`: exit 0.
+- Gate (stub codesign and xcrun) with an empty key, a whitespace key,
+  `SUFeedURL=https://`, `https:///appcast.xml`: exit 2 each, with the new
+  messages; missing key, http feed, missing feed: exit 2 with the old
+  messages unchanged.
+- `ALLOW_NON_DEVELOPER_ID_RELEASE=1` with a staged debug bundle and its zip,
+  and with a DMG holding another app: exit 0, reached.
+- `./script/package_dmg.sh` with the debug bundle: exit 2, no DMG written.
+- The same checks from a copy of the repository whose path contains a space:
+  zip and DMG, matching and different build, as expected.
+
+Not run: the positive path with a real stapled Lid Awake DMG (none exists
+locally) and the real `generate_appcast`. Both are still for the maintainer
+to confirm at the next release.

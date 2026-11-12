@@ -56,25 +56,106 @@ else
   exit 2
 fi
 
+# Prints the CDHash that identifies a bundle's signed code. A copy made with
+# ditto, inside a zip, or on a DMG reports the same value as its source.
+bundle_cdhash() {
+  local signing_info
+  signing_info="$(codesign -dv --verbose=4 "$1" 2>&1 || true)"
+  sed -n 's/^CDHash=//p' <<<"$signing_info"
+}
+
+archive_check_dir=""
+archive_mount_dir=""
+
+# Detaches the archive's volume before removing the directory it is mounted
+# in. If the volume cannot be detached, the directory is left alone.
+cleanup_archive_check() {
+  if [[ -n "$archive_mount_dir" ]]; then
+    if ! hdiutil detach "$archive_mount_dir" >/dev/null 2>&1 \
+      && ! hdiutil detach -force "$archive_mount_dir" >/dev/null 2>&1; then
+      echo "warning: could not detach $archive_mount_dir; detach it, then remove $archive_check_dir" >&2
+      return
+    fi
+    archive_mount_dir=""
+  fi
+  if [[ -n "$archive_check_dir" ]]; then
+    rm -rf "$archive_check_dir"
+    archive_check_dir=""
+  fi
+}
+trap cleanup_archive_check EXIT
+
+# Sparkle installs whatever app the archive holds, so the archive must hold
+# exactly the stapled build checked above, not merely some release build: a
+# stale archive of another build or of another app must not ship.
 if [[ "$ALLOW_NON_DEVELOPER_ID_RELEASE" != "1" ]]; then
+  archive_check_dir="$(mktemp -d)"
+
   if [[ "$update_archive" == "$dmg" ]]; then
     if ! xcrun stapler validate "$dmg" >/dev/null 2>&1; then
       echo "error: $dmg has no stapled notarization ticket" >&2
       echo "hint: notarize the DMG, then run xcrun stapler staple on it" >&2
       exit 2
     fi
-  else
-    # package_release.sh writes the zip before notarization, so a zip that was
-    # not recreated after stapling still holds the unstapled app.
-    archive_check_dir="$(mktemp -d)"
-    trap 'rm -rf "$archive_check_dir"' EXIT
-    ditto -x -k "$zip" "$archive_check_dir"
-    if ! require_public_release_bundle "$archive_check_dir/LidAwake.app"; then
-      echo "error: $zip does not hold the notarized release build" >&2
-      echo "hint: recreate the zip after stapling dist/LidAwake.app, or package the DMG" >&2
+
+    mkdir "$archive_check_dir/mount"
+    if ! attach_output="$(hdiutil attach -readonly -nobrowse -noautoopen \
+      -mountpoint "$archive_check_dir/mount" "$dmg" 2>&1 </dev/null)"; then
+      echo "error: $dmg could not be mounted read-only" >&2
+      printf '%s\n' "$attach_output" >&2
       exit 2
     fi
+    archive_mount_dir="$archive_check_dir/mount"
+
+    # package_dmg.sh puts the app next to an Applications symlink. Another app
+    # or an installer package on the volume could be what Sparkle installs.
+    other_installables="$(find "$archive_mount_dir" -mindepth 1 -maxdepth 1 \
+      \( -iname '*.app' -o -iname '*.pkg' -o -iname '*.mpkg' \) ! -name 'LidAwake.app')"
+    if [[ -n "$other_installables" ]]; then
+      echo "error: $dmg must hold no app or installer package other than LidAwake.app" >&2
+      exit 2
+    fi
+    archive_app="$archive_mount_dir/LidAwake.app"
+  else
+    if ! ditto -x -k "$zip" "$archive_check_dir/zip"; then
+      echo "error: $zip could not be extracted" >&2
+      exit 2
+    fi
+
+    zip_entries="$(find "$archive_check_dir/zip" -mindepth 1 -maxdepth 1)"
+    if [[ "$zip_entries" != "$archive_check_dir/zip/LidAwake.app" ]]; then
+      echo "error: $zip must hold LidAwake.app and nothing else at its top level" >&2
+      exit 2
+    fi
+    archive_app="$archive_check_dir/zip/LidAwake.app"
   fi
+
+  if [[ ! -d "$archive_app" || -L "$archive_app" ]]; then
+    echo "error: $update_archive does not hold a LidAwake.app bundle at its top level" >&2
+    exit 2
+  fi
+
+  # package_release.sh writes the zip before notarization, so a zip that was
+  # not recreated after stapling still holds the unstapled app.
+  if ! require_public_release_bundle "$archive_app"; then
+    echo "error: $update_archive does not hold the notarized release build" >&2
+    echo "hint: rebuild the archive from the stapled dist/LidAwake.app (for a DMG: ./script/package_dmg.sh, then notarize and staple it)" >&2
+    exit 2
+  fi
+
+  dist_cdhash="$(bundle_cdhash "$APP_BUNDLE")"
+  archive_cdhash="$(bundle_cdhash "$archive_app")"
+  if [[ -z "$dist_cdhash" || "$archive_cdhash" != "$dist_cdhash" ]]; then
+    archive_info_plist="$archive_app/Contents/Info.plist"
+    archive_version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$archive_info_plist" 2>/dev/null || true)"
+    archive_build="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$archive_info_plist" 2>/dev/null || true)"
+    echo "error: $update_archive holds a different build than dist/LidAwake.app (archive: ${archive_version:-unknown} build ${archive_build:-unknown}, dist: $version build $build)" >&2
+    echo "hint: rebuild the archive from the stapled dist/LidAwake.app (for a DMG: ./script/package_dmg.sh, then notarize and staple it)" >&2
+    exit 2
+  fi
+
+  # Detach now: the signing tool reads the DMG itself.
+  cleanup_archive_check
 fi
 
 if [[ -z "$SPARKLE_DOWNLOAD_URL_PREFIX" ]]; then
@@ -83,8 +164,13 @@ elif [[ "$SPARKLE_DOWNLOAD_URL_PREFIX" != */ ]]; then
   SPARKLE_DOWNLOAD_URL_PREFIX="$SPARKLE_DOWNLOAD_URL_PREFIX/"
 fi
 
-if [[ "$ALLOW_NON_DEVELOPER_ID_RELEASE" != "1" && "$SPARKLE_DOWNLOAD_URL_PREFIX" != https://* ]]; then
-  echo "error: SPARKLE_DOWNLOAD_URL_PREFIX must use https for a public appcast" >&2
+if [[ "$ALLOW_NON_DEVELOPER_ID_RELEASE" != "1" ]] && ! is_https_url_with_host "$SPARKLE_DOWNLOAD_URL_PREFIX"; then
+  echo "error: SPARKLE_DOWNLOAD_URL_PREFIX must be an https URL with a host for a public appcast" >&2
+  exit 2
+fi
+
+if [[ -n "$SPARKLE_RELEASE_NOTES" && ! -f "$SPARKLE_RELEASE_NOTES" ]]; then
+  echo "error: SPARKLE_RELEASE_NOTES does not exist: $SPARKLE_RELEASE_NOTES" >&2
   exit 2
 fi
 
@@ -93,10 +179,6 @@ mkdir -p "$APPCAST_DIR"
 cp "$update_archive" "$APPCAST_DIR/"
 
 if [[ -n "$SPARKLE_RELEASE_NOTES" ]]; then
-  if [[ ! -f "$SPARKLE_RELEASE_NOTES" ]]; then
-    echo "error: SPARKLE_RELEASE_NOTES does not exist: $SPARKLE_RELEASE_NOTES" >&2
-    exit 2
-  fi
   extension="${SPARKLE_RELEASE_NOTES##*.}"
   cp "$SPARKLE_RELEASE_NOTES" "$APPCAST_DIR/$(basename "$update_archive" ."${update_archive##*.}").$extension"
 fi
