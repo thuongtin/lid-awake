@@ -114,6 +114,11 @@ final class ClosedLidHelperService {
         SMAppService.daemon(plistName: LidAwakeHelperConstants.daemonPlistName)
     }
 
+    /// Where the daemon plist's `BundleProgram` points inside this app bundle.
+    private var bundledHelperURL: URL {
+        Bundle.main.bundleURL.appendingPathComponent("Contents/Library/LaunchServices/LidAwakeHelper")
+    }
+
     var status: ClosedLidHelperStatus {
         switch service.status {
         case .notRegistered:
@@ -208,7 +213,7 @@ final class ClosedLidHelperService {
     /// one. Nothing else reports that difference: `status` only reads the
     /// `SMAppService` record, which stays `.enabled` either way.
     func probeConnection(reply: @escaping (Result<Void, ClosedLidHelperFailure>) -> Void) {
-        withRemoteObject { remote, finish in
+        withRemoteObject { remote, _, finish in
             remote.readClosedLidStatus { _ in
                 finish {
                     reply(.success(()))
@@ -219,8 +224,33 @@ final class ClosedLidHelperService {
         }
     }
 
+    /// Reports whether the helper process that answers is the build this app
+    /// bundle ships. See `ClosedLidHelperBuildCheck` for why it can differ.
+    ///
+    /// `reply` runs once, on an arbitrary queue, within `xpcResponseTimeout`.
+    /// A helper that cannot be reached is `.unknown`: that failure has its own
+    /// warning and its own way back.
+    func checkRunningHelperBuild(reply: @escaping (ClosedLidHelperBuildCheck) -> Void) {
+        let bundledHelperURL = bundledHelperURL
+        withRemoteObject { remote, connection, finish in
+            remote.readClosedLidStatus { _ in
+                // Compared before the connection is given up, while its
+                // process identifier still names the helper that just answered.
+                let result = RunningHelperBuild.check(
+                    processIdentifier: connection.processIdentifier,
+                    bundledHelperURL: bundledHelperURL
+                )
+                finish {
+                    reply(result)
+                }
+            }
+        } failure: { _ in
+            reply(.unknown)
+        }
+    }
+
     func setClosedLidMode(enabled: Bool, reply: @escaping (Result<Void, Error>) -> Void) {
-        withRemoteObject { remote, finish in
+        withRemoteObject { remote, _, finish in
             remote.setClosedLidMode(enabled: enabled) { success, message in
                 finish {
                     if success {
@@ -240,7 +270,7 @@ final class ClosedLidHelperService {
     }
 
     private func withRemoteObject(
-        operation: @escaping (LidAwakeHelperXPCProtocol, @escaping (@escaping () -> Void) -> Void) -> Void,
+        operation: @escaping (LidAwakeHelperXPCProtocol, NSXPCConnection, @escaping (@escaping () -> Void) -> Void) -> Void,
         failure: @escaping (ClosedLidHelperFailure) -> Void
     ) {
         connect(
@@ -254,7 +284,7 @@ final class ClosedLidHelperService {
     }
 
     private func connect(
-        operation: @escaping (LidAwakeHelperXPCProtocol, @escaping (@escaping () -> Void) -> Void) -> Void,
+        operation: @escaping (LidAwakeHelperXPCProtocol, NSXPCConnection, @escaping (@escaping () -> Void) -> Void) -> Void,
         retriesRemaining: Int,
         deadline: DispatchTime,
         failure: @escaping (ClosedLidHelperFailure) -> Void
@@ -322,7 +352,7 @@ final class ClosedLidHelperService {
             }
         }
 
-        operation(remote) { completion in
+        operation(remote, connection) { completion in
             completionGate.run {
                 connection.invalidate()
                 completion()

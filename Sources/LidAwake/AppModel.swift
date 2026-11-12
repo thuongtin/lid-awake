@@ -37,6 +37,7 @@ protocol ClosedLidHelperServicing: AnyObject {
     func unregister() throws
     func setClosedLidMode(enabled: Bool, reply: @escaping (Result<Void, Error>) -> Void)
     func probeConnection(reply: @escaping (Result<Void, ClosedLidHelperFailure>) -> Void)
+    func checkRunningHelperBuild(reply: @escaping (ClosedLidHelperBuildCheck) -> Void)
     func openApprovalSettings()
 }
 
@@ -158,6 +159,13 @@ final class AppModel: ObservableObject {
     private var isTerminating = false
     /// Set from the start of a repair until its registration settles.
     private var isRepairingClosedLidHelper = false
+    /// Set while the launch-time question of whether the running helper is
+    /// this build's is out. Closed-lid changes wait for the answer, so an
+    /// enable does not go to a helper that is about to be replaced.
+    private var isCheckingClosedLidHelperBuild = false
+    /// Set for a repair the app started on its own because the running helper
+    /// was an older build, rather than one the user asked for.
+    private var isReplacingOutdatedClosedLidHelper = false
     /// A quit that arrived during a repair, waiting to restore once it settles.
     private var terminationRestoreAfterRepair: (@MainActor () -> Void)?
     private var didPromptForScreenLockAccessibility = false
@@ -266,6 +274,7 @@ final class AppModel: ObservableObject {
         loadClosedLidOwnershipRecord()
         syncLaunchAtLoginStatus()
         syncClosedLidHelperStatus()
+        checkClosedLidHelperBuild()
         evaluate(forceClosedLidStatusRead: true)
         requestScreenLockAccessibilityPermissionIfNeeded()
         guard scheduleTimers else {
@@ -522,6 +531,72 @@ final class AppModel: ObservableObject {
         evaluate()
     }
 
+    /// Asks, once per launch, whether the helper launchd has running is the
+    /// one this app bundle ships, and replaces it when it is an older build.
+    ///
+    /// An update replaces the app but not the helper process, which keeps
+    /// answering and keeps `SMAppService` at `.enabled`, so without this the
+    /// previous helper stays in use until a restart or a manual repair that
+    /// nothing on screen suggests. Only an approved registration is asked: any
+    /// other state already shows the action that fits it.
+    private func checkClosedLidHelperBuild() {
+        guard closedLidHelperStatus == .enabled else {
+            return
+        }
+
+        isCheckingClosedLidHelperBuild = true
+        closedLidHelperService.checkRunningHelperBuild { [weak self] result in
+            DispatchQueue.main.async {
+                self?.finishCheckingClosedLidHelperBuild(result)
+            }
+        }
+    }
+
+    private func finishCheckingClosedLidHelperBuild(_ result: ClosedLidHelperBuildCheck) {
+        guard isCheckingClosedLidHelperBuild else {
+            return
+        }
+
+        isCheckingClosedLidHelperBuild = false
+        guard !isTerminating else {
+            return
+        }
+
+        syncClosedLidHelperStatus()
+        // A removal or a repair the user started in the meantime owns the
+        // helper, and a removal that could not finish must not be undone by
+        // registering the helper again.
+        guard result == .outdated,
+              closedLidHelperStatus == .enabled,
+              !isChangingClosedLidMode,
+              !closedLidHelperRemovalRequested
+        else {
+            // Only this was held back, and launch asked for a fresh read.
+            reconcileClosedLidMode(forceStatusRead: true)
+            return
+        }
+
+        logger.info("running closed-lid helper is an older build, replacing it")
+        beginRepairingClosedLidHelper(automatic: true)
+    }
+
+    /// Nobody pressed a button for this repair, so there is no click to
+    /// answer with an error or with System Settings. Whatever state the
+    /// registration ended in, the regular evaluation reports it and offers the
+    /// action that fits, the same way it does at any other launch.
+    private func finishReplacingOutdatedClosedLidHelper(result: Result<Void, Error>) {
+        lastClosedLidVerifiedAt = nil
+        syncClosedLidHelperStatus()
+        switch result {
+        case .success:
+            logger.info("replaced the older closed-lid helper status=\(self.closedLidHelperStatus.displayText, privacy: .public)")
+        case let .failure(error):
+            logger.error("replacing the older closed-lid helper failed error=\(error.localizedDescription, privacy: .public)")
+        }
+
+        evaluate(forceClosedLidStatusRead: true)
+    }
+
     /// Whether re-registering the helper is the action that can clear a failure.
     private func isRepairableClosedLidFailure(_ error: Error) -> Bool {
         (error as? ClosedLidHelperFailure)?.isRecoverableByRepair ?? false
@@ -762,12 +837,17 @@ final class AppModel: ObservableObject {
             return
         }
 
+        beginRepairingClosedLidHelper(automatic: false)
+    }
+
+    private func beginRepairingClosedLidHelper(automatic: Bool) {
         closedLidHelperRemovalRequested = false
         closedLidRetryNotBefore = nil
         // Held until macOS settles the registration, the same way a removal
         // holds it, so no change reaches a helper that is being replaced.
         isChangingClosedLidMode = true
         isRepairingClosedLidHelper = true
+        isReplacingOutdatedClosedLidHelper = automatic
         restoreClosedLidModeBeforeRepair { [weak self] in
             self?.registerClosedLidHelperForRepair()
         }
@@ -819,12 +899,22 @@ final class AppModel: ObservableObject {
     }
 
     private func abortRepairingClosedLidHelper(restoreError: Error) {
+        let wasAutomatic = isReplacingOutdatedClosedLidHelper
         isChangingClosedLidMode = false
         isRepairingClosedLidHelper = false
+        isReplacingOutdatedClosedLidHelper = false
         guard !isTerminating else {
             let restore = terminationRestoreAfterRepair
             terminationRestoreAfterRepair = nil
             restore?()
+            return
+        }
+
+        // The older helper answered and stays registered, so the app carries
+        // on with it, and the regular evaluation reports a restore that keeps
+        // failing. The next launch asks again.
+        guard !wasAutomatic else {
+            evaluate(forceClosedLidStatusRead: true)
             return
         }
 
@@ -843,12 +933,19 @@ final class AppModel: ObservableObject {
     }
 
     private func finishRepairingClosedLidHelper(result: Result<Void, Error>) {
+        let wasAutomatic = isReplacingOutdatedClosedLidHelper
         isChangingClosedLidMode = false
         isRepairingClosedLidHelper = false
+        isReplacingOutdatedClosedLidHelper = false
         guard !isTerminating else {
             let restore = terminationRestoreAfterRepair
             terminationRestoreAfterRepair = nil
             restore?()
+            return
+        }
+
+        guard !wasAutomatic else {
+            finishReplacingOutdatedClosedLidHelper(result: result)
             return
         }
 
@@ -1240,7 +1337,7 @@ final class AppModel: ObservableObject {
     /// finishes in `finishReconcilingClosedLidMode`, which checks every
     /// condition again, since any of them can change while `pmset` answers.
     private func reconcileClosedLidMode(forceStatusRead: Bool = false) {
-        guard !isChangingClosedLidMode, !isTerminating else {
+        guard !isChangingClosedLidMode, !isTerminating, !isCheckingClosedLidHelperBuild else {
             return
         }
 
