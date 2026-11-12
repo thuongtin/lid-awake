@@ -485,7 +485,7 @@ final class AppModel: ObservableObject {
         let now = clock.now
         if !force,
            let lastClosedLidHelperProbeAt,
-           now.timeIntervalSince(lastClosedLidHelperProbeAt) < closedLidHelperProbeInterval {
+           0..<closedLidHelperProbeInterval ~= now.timeIntervalSince(lastClosedLidHelperProbeAt) {
             return
         }
 
@@ -600,7 +600,7 @@ final class AppModel: ObservableObject {
             desiredClosedLidMode: false,
             currentStatus: .enabled,
             helperCanControlClosedLidMode: closedLidHelperStatus.canControlClosedLidMode,
-            attemptedAt: Date()
+            attemptedAt: clock.now
         ) {
         case .none:
             complete()
@@ -1250,9 +1250,11 @@ final class AppModel: ObservableObject {
         // re-verify with `pmset` only occasionally instead of spawning a subprocess
         // on every 5s evaluate. Each read fork/execs /usr/bin/pmset, so an
         // unthrottled read here is ~17k process spawns/day while holding.
+        // A wall clock that was set back makes the last read look like it is
+        // still ahead, which must not hold the next one off.
         if desired, !forceStatusRead, closedLidStatus == .enabled,
            let lastVerified = lastClosedLidVerifiedAt,
-           Date().timeIntervalSince(lastVerified) < closedLidVerifyInterval {
+           0..<closedLidVerifyInterval ~= clock.now.timeIntervalSince(lastVerified) {
             clearClosedLidErrorUnlessRemovalPending()
             return
         }
@@ -1277,7 +1279,7 @@ final class AppModel: ObservableObject {
             return
         }
 
-        lastClosedLidVerifiedAt = status == .enabled ? Date() : nil
+        lastClosedLidVerifiedAt = status == .enabled ? clock.now : nil
 
         if shouldEnableClosedLidMode {
             guard status != .enabled else {
@@ -1309,7 +1311,7 @@ final class AppModel: ObservableObject {
             desiredClosedLidMode: false,
             currentStatus: status,
             helperCanControlClosedLidMode: closedLidHelperStatus.canControlClosedLidMode,
-            attemptedAt: Date()
+            attemptedAt: clock.now
         ) {
         case .none:
             return
@@ -1356,7 +1358,7 @@ final class AppModel: ObservableObject {
             let intentRecord = ClosedLidOwnershipReducer.recordBeforeEnabling(
                 previousStatus: previousStatus,
                 existingRecord: closedLidOwnershipRecord,
-                at: Date()
+                at: clock.now
             )
             if intentRecord != closedLidOwnershipRecord {
                 saveClosedLidOwnershipRecord(intentRecord)
@@ -1429,7 +1431,7 @@ final class AppModel: ObservableObject {
                 previousStatus: previousStatus,
                 finalStatus: status,
                 existingRecord: closedLidOwnershipRecord,
-                at: Date()
+                at: clock.now
             )
             saveClosedLidOwnershipRecord(nextRecord)
             closedLidRestoreWatchdogArmed = enabled

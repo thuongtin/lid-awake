@@ -46,7 +46,7 @@ final class PMSetServiceTests: XCTestCase {
 
     func testStatusReadGivesUpAfterATimedOutPMSet() {
         let runner = RecordingProcessRunner(result: ProcessResult(status: -1, output: "", timedOut: true))
-        let service = PMSetService(runProcess: runner.run)
+        let service = PMSetService(runProcess: { runner.run($0, arguments: $1, timeout: $2) })
 
         XCTAssertEqual(service.readClosedLidStatus(), .notReported)
         // A hung pmset would hang again, so the fallback read is skipped.
@@ -59,7 +59,7 @@ final class PMSetServiceTests: XCTestCase {
             ProcessResult(status: 0, output: "System-wide power settings:", timedOut: false),
             ProcessResult(status: 0, output: "AC Power:\n disablesleep 1", timedOut: false)
         ])
-        let service = PMSetService(runProcess: runner.run)
+        let service = PMSetService(runProcess: { runner.run($0, arguments: $1, timeout: $2) })
 
         XCTAssertEqual(service.readClosedLidStatus(), .enabled)
         XCTAssertEqual(runner.calls.map(\.arguments), [["-g"], ["-g", "custom"]])
@@ -67,7 +67,7 @@ final class PMSetServiceTests: XCTestCase {
 
     func testClosedLidChangeFailsWhenPMSetTimesOut() {
         let runner = RecordingProcessRunner(result: ProcessResult(status: -1, output: "pmset hung", timedOut: true))
-        let service = PMSetService(runProcess: runner.run)
+        let service = PMSetService(runProcess: { runner.run($0, arguments: $1, timeout: $2) })
 
         XCTAssertThrowsError(try service.setClosedLidMode(enabled: false)) { error in
             XCTAssertEqual(error as? PMSetError, .timedOut("pmset hung"))

@@ -405,7 +405,7 @@ struct SettingsView: View {
                 Divider()
                 InfoLine(
                     title: "System settings",
-                    value: "Changed only when keep-display-on is selected",
+                    value: "Sleep setting changed only while keeping awake, then restored",
                     systemImage: "gearshape"
                 )
             }

@@ -368,7 +368,7 @@ final class ClosedLidDisplayCoordinatorTests: XCTestCase {
         var settings = UserSettings.defaults
         settings.lidClosedDisplayMode = .turnDisplayOff
         let update = {
-            coordinator.update(settings: settings, wakeStatus: holdingStatus(), closedLidStatus: .enabled)
+            _ = coordinator.update(settings: settings, wakeStatus: holdingStatus(), closedLidStatus: .enabled)
         }
 
         update()

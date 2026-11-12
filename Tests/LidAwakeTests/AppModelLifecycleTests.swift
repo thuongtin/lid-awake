@@ -1692,6 +1692,46 @@ final class AppModelLifecycleTests: XCTestCase {
 
         XCTAssertEqual(harness.closedLidStatusReader.readCount, countAfterStart)
     }
+
+    func testHoldingReverifiesClosedLidModeOnlyAfterTheVerifyInterval() async {
+        let harness = AppModelHarness(
+            settings: UserSettings(enabled: true),
+            helperStatus: .enabled,
+            closedLidStatus: .enabled
+        )
+
+        harness.model.start(scheduleTimers: false)
+        await drainMainQueue()
+        let readsAfterStart = harness.closedLidStatusReader.readCount
+
+        harness.clock.advance(seconds: 29)
+        harness.model.evaluate()
+        await drainMainQueue()
+        XCTAssertEqual(harness.closedLidStatusReader.readCount, readsAfterStart)
+
+        harness.clock.advance(seconds: 1)
+        harness.model.evaluate()
+        await drainMainQueue()
+        XCTAssertEqual(harness.closedLidStatusReader.readCount, readsAfterStart + 1)
+    }
+
+    func testClockSetBackDoesNotHoldOffClosedLidReverification() async {
+        let harness = AppModelHarness(
+            settings: UserSettings(enabled: true),
+            helperStatus: .enabled,
+            closedLidStatus: .enabled
+        )
+
+        harness.model.start(scheduleTimers: false)
+        await drainMainQueue()
+        let readsAfterStart = harness.closedLidStatusReader.readCount
+
+        harness.clock.advance(seconds: -3600)
+        harness.model.evaluate()
+        await drainMainQueue()
+
+        XCTAssertEqual(harness.closedLidStatusReader.readCount, readsAfterStart + 1)
+    }
 }
 
 final class ClosedLidHelperRemovalTests: XCTestCase {

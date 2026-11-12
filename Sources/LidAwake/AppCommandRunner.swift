@@ -12,6 +12,7 @@ private struct InstanceLockUnavailableError: LocalizedError {
 enum AppCommandRunner {
     /// Held until the command exits, so no copy of the app starts meanwhile.
     private static var instanceLock: AppInstanceLock?
+    private static let codeSigningStatusTimeout: TimeInterval = 5
 
     static func runIfNeeded(arguments: [String] = CommandLine.arguments) {
         guard let command = arguments.dropFirst().first(where: { argument in
@@ -117,27 +118,36 @@ enum AppCommandRunner {
     }
 
     private static func printCodeSigningStatus() {
-        let process = Process()
-        let stderr = Pipe()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/codesign")
-        process.arguments = ["-dv", Bundle.main.bundlePath]
-        process.standardError = stderr
-        process.standardOutput = Pipe()
-
-        do {
-            try process.run()
-            process.waitUntilExit()
-        } catch {
+        // `codesign -dv` writes its report to stderr, which the runner collects
+        // along with stdout.
+        let result = ProcessRunner.run(
+            "/usr/bin/codesign",
+            arguments: ["-dv", Bundle.main.bundlePath],
+            timeout: codeSigningStatusTimeout
+        )
+        // A bundle `codesign` cannot describe, such as an unsigned one, must
+        // not be reported as signed with an identity.
+        guard !result.timedOut, result.status == 0 else {
             print("codeSigningStatus=unavailable")
-            print("codeSigningError=\(error.localizedDescription)")
+            print("codeSigningError=\(result.output)")
             return
         }
 
-        let data = stderr.fileHandleForReading.readDataToEndOfFile()
-        let output = String(data: data, encoding: .utf8) ?? ""
-        let teamIdentifier = firstCodesignValue(named: "TeamIdentifier", in: output) ?? "unknown"
-        print("teamIdentifier=\(teamIdentifier)")
-        print("codeSigningMode=\(teamIdentifier == "not set" ? "adhoc" : "identified")")
+        for line in codeSigningReport(codesignOutput: result.output) {
+            print(line)
+        }
+    }
+
+    /// The lines `--screen-lock-status` prints for a `codesign -dv` report.
+    static func codeSigningReport(codesignOutput output: String) -> [String] {
+        guard let teamIdentifier = firstCodesignValue(named: "TeamIdentifier", in: output) else {
+            return ["teamIdentifier=unknown", "codeSigningMode=unknown"]
+        }
+
+        return [
+            "teamIdentifier=\(teamIdentifier)",
+            "codeSigningMode=\(teamIdentifier == "not set" ? "adhoc" : "identified")"
+        ]
     }
 
     private static func firstCodesignValue(named key: String, in output: String) -> String? {

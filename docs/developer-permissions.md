@@ -63,6 +63,8 @@ If `accessibilityTrusted=false`, remove stale Lid Awake entries from Accessibili
 
 If the command reports `codeSigningMode=adhoc` or `teamIdentifier=not set`, treat the Accessibility result with care. System Settings can show an old `LidAwake` row as enabled while the currently rebuilt app process is not trusted. Use a stable Apple signing identity for local QA when testing permissions repeatedly.
 
+If `codesign` cannot describe the bundle at all, for example because it is unsigned, the command prints `codeSigningStatus=unavailable` with the `codesign` error instead. A report without a `TeamIdentifier` line prints `codeSigningMode=unknown`. Treat both like an ad-hoc build.
+
 ## Signing Requirements
 
 Local staging prefers the first available `Developer ID Application` or `Apple Development` signing identity. If no identity exists, staging falls back to ad-hoc signing.
