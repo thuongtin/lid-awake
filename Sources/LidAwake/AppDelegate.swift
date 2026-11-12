@@ -21,10 +21,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItemController = StatusItemController(model: model) { [weak self] in
             self?.openSettings()
         }
-        // The prompt runs a modal loop. Started from a main-queue block, that
-        // loop would hold back every other main-queue block, helper replies and
-        // `pmset` results included, until the alert closes. A timer callback
-        // is a run loop source, so the main queue keeps draining underneath.
+        scheduleClosedLidPermissionPrompt()
+    }
+
+    /// The prompt runs a modal loop. Started from a main-queue block, that
+    /// loop would hold back every other main-queue block, helper replies and
+    /// `pmset` results included, until the alert closes. A timer callback
+    /// is a run loop source, so the main queue keeps draining underneath.
+    private func scheduleClosedLidPermissionPrompt() {
         let promptTimer = Timer(timeInterval: 0.5, repeats: false) { [weak self] _ in
             MainActor.assumeIsolated {
                 self?.presentClosedLidPermissionPromptIfNeeded()
@@ -73,6 +77,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func presentClosedLidPermissionPromptIfNeeded() {
         guard !didPresentClosedLidPermissionPrompt else {
+            return
+        }
+
+        // After an update the app may be replacing the helper right now. The
+        // prompt asks about the state that settles in, which every path
+        // reaches within the helper's own timeouts.
+        guard !model.isSettlingClosedLidHelperAtLaunch else {
+            scheduleClosedLidPermissionPrompt()
             return
         }
 

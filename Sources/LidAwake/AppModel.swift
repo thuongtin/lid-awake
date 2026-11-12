@@ -309,8 +309,15 @@ final class AppModel: ObservableObject {
         closedLidSideEffectsTimer = sideEffectsTimer
     }
 
+    /// True while the launch-time helper check, or the replacement it
+    /// started, is still out. The registration reads "Not set up" for a moment
+    /// while a helper is replaced, and that is not a state to ask anyone about.
+    var isSettlingClosedLidHelperAtLaunch: Bool {
+        isCheckingClosedLidHelperBuild || isReplacingOutdatedClosedLidHelper
+    }
+
     var shouldShowClosedLidPermissionPrompt: Bool {
-        closedLidHelperStatus.needsPermissionPrompt
+        !isSettlingClosedLidHelperAtLaunch && closedLidHelperStatus.needsPermissionPrompt
     }
 
     var closedLidControlNeedsAttention: Bool {
@@ -1265,6 +1272,14 @@ final class AppModel: ObservableObject {
     }
 
     private func syncClosedLidHelperStatus() {
+        // A replacement the app started on its own unregisters and registers
+        // within seconds. Reporting the gap would show a set-up request for a
+        // helper that is about to be ready again, so the status the
+        // replacement ends in is the next one published.
+        guard !isReplacingOutdatedClosedLidHelper else {
+            return
+        }
+
         let next = closedLidHelperService.status
 
         // Only publish on a real transition. @Published fires objectWillChange on

@@ -945,6 +945,95 @@ final class AppModelLifecycleTests: XCTestCase {
         XCTAssertEqual(harness.model.closedLidError, ClosedLidHelperFailure.connectionLostMessage)
     }
 
+    func testReplacingAHelperAtLaunchNeverAsksForSetUp() async {
+        let harness = AppModelHarness(
+            settings: UserSettings(enabled: true),
+            helperStatus: .enabled,
+            closedLidStatus: .disabled
+        )
+        harness.helper.onSetClosedLidMode = { enabled in
+            harness.closedLidStatusReader.status = enabled ? .enabled : .disabled
+        }
+        harness.helper.runningHelperBuild = .refused
+        harness.helper.isUnreachableUntilRepair = true
+        // macOS reports no registration between the unregister and the register.
+        harness.helper.shouldReplyToRepairRegistration = false
+        harness.helper.statusWhileRepairing = .notRegistered
+        harness.helper.statusAfterRepair = .enabled
+
+        harness.model.start(scheduleTimers: false)
+        await drainMainQueue()
+        // What the launch prompt, the menu and the settings window ask for.
+        harness.model.refreshClosedLidPermissionState()
+        harness.model.refreshAfterExternalPermissionChange()
+        await drainMainQueue()
+
+        XCTAssertEqual(harness.helper.repairRegistrationCallCount, 1)
+        XCTAssertTrue(harness.model.isSettlingClosedLidHelperAtLaunch)
+        XCTAssertFalse(harness.model.shouldShowClosedLidPermissionPrompt)
+        XCTAssertFalse(harness.model.closedLidControlNeedsAttention)
+        XCTAssertEqual(harness.model.closedLidHelperStatus, .enabled)
+        XCTAssertNil(harness.model.closedLidError)
+
+        harness.helper.pendingRepairReply?()
+        await drainMainQueue()
+
+        XCTAssertFalse(harness.model.isSettlingClosedLidHelperAtLaunch)
+        XCTAssertFalse(harness.model.shouldShowClosedLidPermissionPrompt)
+        XCTAssertFalse(harness.model.closedLidControlNeedsAttention)
+        XCTAssertEqual(harness.model.closedLidHelperStatus, .enabled)
+        XCTAssertEqual(harness.helper.setClosedLidModeRequests.last, true)
+    }
+
+    func testFailedReplacementAtLaunchAsksForSetUpOnlyOnceItSettles() async {
+        let harness = AppModelHarness(
+            settings: UserSettings(enabled: true),
+            helperStatus: .enabled,
+            closedLidStatus: .disabled
+        )
+        harness.helper.runningHelperBuild = .outdated
+        harness.helper.shouldReplyToRepairRegistration = false
+        harness.helper.statusWhileRepairing = .notRegistered
+        harness.helper.repairRegistrationError = ClosedLidHelperFailure.commandFailed("Registration failed.")
+        harness.helper.statusAfterRepair = .notRegistered
+
+        harness.model.start(scheduleTimers: false)
+        await drainMainQueue()
+        harness.model.refreshClosedLidPermissionState()
+        await drainMainQueue()
+
+        XCTAssertTrue(harness.model.isSettlingClosedLidHelperAtLaunch)
+        XCTAssertFalse(harness.model.shouldShowClosedLidPermissionPrompt)
+        XCTAssertEqual(harness.model.closedLidHelperStatus, .enabled)
+
+        harness.helper.pendingRepairReply?()
+        await drainMainQueue()
+
+        XCTAssertFalse(harness.model.isSettlingClosedLidHelperAtLaunch)
+        XCTAssertTrue(harness.model.shouldShowClosedLidPermissionPrompt)
+        XCTAssertEqual(harness.model.closedLidHelperStatus, .notRegistered)
+        XCTAssertEqual(harness.model.closedLidPrimaryActionTitle, "Set Up Helper")
+    }
+
+    func testLaunchPromptWaitsForTheHelperBuildCheck() async {
+        let harness = AppModelHarness(
+            settings: UserSettings(enabled: true),
+            helperStatus: .enabled,
+            closedLidStatus: .disabled
+        )
+        harness.helper.shouldReplyToBuildCheck = false
+
+        harness.model.start(scheduleTimers: false)
+        await drainMainQueue()
+
+        XCTAssertTrue(harness.model.isSettlingClosedLidHelperAtLaunch)
+
+        harness.helper.pendingBuildCheckReply?()
+        await drainMainQueue()
+
+        XCTAssertFalse(harness.model.isSettlingClosedLidHelperAtLaunch)
+    }
+
     func testCurrentHelperIsLeftAlone() async {
         let harness = AppModelHarness(
             settings: UserSettings(enabled: true),
@@ -2809,6 +2898,9 @@ private final class FakeClosedLidHelperService: ClosedLidHelperServicing {
     /// Status the registration reports once a repair finishes, success or not.
     var statusAfterRepair: ClosedLidHelperStatus?
     var shouldReplyToRepairRegistration = true
+    /// Status the registration reports from the unregister until the repair
+    /// finishes.
+    var statusWhileRepairing: ClosedLidHelperStatus?
     private(set) var pendingRepairReply: (() -> Void)?
     /// Status the registration reports once `register()` returns.
     var statusAfterRegister: ClosedLidHelperStatus?
@@ -2839,6 +2931,9 @@ private final class FakeClosedLidHelperService: ClosedLidHelperServicing {
 
     func repairRegistration(completion: @escaping (Result<Void, Error>) -> Void) {
         repairRegistrationCallCount += 1
+        if let statusWhileRepairing {
+            status = statusWhileRepairing
+        }
         let reply = { [self] in
             if let statusAfterRepair {
                 status = statusAfterRepair
