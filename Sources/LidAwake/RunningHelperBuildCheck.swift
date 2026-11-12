@@ -15,6 +15,11 @@ enum ClosedLidHelperBuildCheck: Equatable {
     case current
     /// The running helper was started from a different build.
     case outdated
+    /// The registration is approved and the helper turned this app away.
+    /// A helper left running by a previous copy does that once its own bundle
+    /// is gone, because it can no longer read the signature it compares its
+    /// clients with.
+    case refused
     /// The comparison could not be made, so nothing may be concluded from it.
     case unknown
 }

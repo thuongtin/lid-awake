@@ -228,8 +228,9 @@ final class ClosedLidHelperService {
     /// bundle ships. See `ClosedLidHelperBuildCheck` for why it can differ.
     ///
     /// `reply` runs once, on an arbitrary queue, within `xpcResponseTimeout`.
-    /// A helper that cannot be reached is `.unknown`: that failure has its own
-    /// warning and its own way back.
+    /// A connection the helper gave up, after the one retry every call gets,
+    /// is `.refused`. A helper that is only slow is `.unknown`, since nothing
+    /// says a new registration would answer any faster.
     func checkRunningHelperBuild(reply: @escaping (ClosedLidHelperBuildCheck) -> Void) {
         let bundledHelperURL = bundledHelperURL
         withRemoteObject { remote, connection, finish in
@@ -244,8 +245,8 @@ final class ClosedLidHelperService {
                     reply(result)
                 }
             }
-        } failure: { _ in
-            reply(.unknown)
+        } failure: { failure in
+            reply(failure == .connectionLost ? .refused : .unknown)
         }
     }
 

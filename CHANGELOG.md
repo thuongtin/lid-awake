@@ -6,7 +6,7 @@ The format follows dated release sections after the first tagged release.
 
 ## 0.1.9 - 2026-11-12
 
-- Fixed an update leaving the previous version's Lid Awake Helper running until a manual Repair or a restart. The app now notices on launch that the running helper is not the one it ships and replaces it on its own, with no prompt and no new approval.
+- Fixed updates needing a manual Repair. After an update the previous version's Lid Awake Helper either kept running in place of the new one or refused the updated app and left closed-lid mode blocked behind a Repair warning. The app now notices on launch that the running helper is not the one it ships and replaces it on its own, with no prompt and no new approval.
 - Fixed a missing notification when a hold ends because the power adapter is unplugged with "only when plugged in" on, or because macOS refuses the power assertion.
 - Fixed a slow closed-lid change being reported as a lost helper with a Repair offer instead of the real `pmset` error. The helper now answers the app before its restore watchdog does its bookkeeping.
 - Kept the Repair offer on screen when re-arming the helper watchdog fails, instead of clearing the warning and resending the change.

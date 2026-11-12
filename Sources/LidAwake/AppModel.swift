@@ -163,8 +163,8 @@ final class AppModel: ObservableObject {
     /// this build's is out. Closed-lid changes wait for the answer, so an
     /// enable does not go to a helper that is about to be replaced.
     private var isCheckingClosedLidHelperBuild = false
-    /// Set for a repair the app started on its own because the running helper
-    /// was an older build, rather than one the user asked for.
+    /// Set for a repair the app started on its own at launch, because the
+    /// running helper was not this build's, rather than one the user asked for.
     private var isReplacingOutdatedClosedLidHelper = false
     /// A quit that arrived during a repair, waiting to restore once it settles.
     private var terminationRestoreAfterRepair: (@MainActor () -> Void)?
@@ -532,13 +532,16 @@ final class AppModel: ObservableObject {
     }
 
     /// Asks, once per launch, whether the helper launchd has running is the
-    /// one this app bundle ships, and replaces it when it is an older build.
+    /// one this app bundle ships, and replaces it when it is not.
     ///
-    /// An update replaces the app but not the helper process, which keeps
-    /// answering and keeps `SMAppService` at `.enabled`, so without this the
-    /// previous helper stays in use until a restart or a manual repair that
-    /// nothing on screen suggests. Only an approved registration is asked: any
-    /// other state already shows the action that fits it.
+    /// An update replaces the app but not the helper process, and
+    /// `SMAppService` stays at `.enabled`. Depending on how the updater removed
+    /// the previous bundle, that helper either keeps answering, so it would
+    /// stay in use until a restart, or turns the new app away, which used to
+    /// end in a warning that asked for a manual repair. Neither is something
+    /// a person who just updated should have to know about. Only an approved
+    /// registration is asked: any other state already shows the action that
+    /// fits it.
     private func checkClosedLidHelperBuild() {
         guard closedLidHelperStatus == .enabled else {
             return
@@ -566,7 +569,7 @@ final class AppModel: ObservableObject {
         // A removal or a repair the user started in the meantime owns the
         // helper, and a removal that could not finish must not be undone by
         // registering the helper again.
-        guard result == .outdated,
+        guard result == .outdated || result == .refused,
               closedLidHelperStatus == .enabled,
               !isChangingClosedLidMode,
               !closedLidHelperRemovalRequested
@@ -576,7 +579,11 @@ final class AppModel: ObservableObject {
             return
         }
 
-        logger.info("running closed-lid helper is an older build, replacing it")
+        if result == .outdated {
+            logger.info("running closed-lid helper is an older build, replacing it")
+        } else {
+            logger.info("closed-lid helper turned this app away at launch, replacing it")
+        }
         beginRepairingClosedLidHelper(automatic: true)
     }
 
@@ -589,9 +596,9 @@ final class AppModel: ObservableObject {
         syncClosedLidHelperStatus()
         switch result {
         case .success:
-            logger.info("replaced the older closed-lid helper status=\(self.closedLidHelperStatus.displayText, privacy: .public)")
+            logger.info("replaced the closed-lid helper at launch status=\(self.closedLidHelperStatus.displayText, privacy: .public)")
         case let .failure(error):
-            logger.error("replacing the older closed-lid helper failed error=\(error.localizedDescription, privacy: .public)")
+            logger.error("replacing the closed-lid helper at launch failed error=\(error.localizedDescription, privacy: .public)")
         }
 
         evaluate(forceClosedLidStatusRead: true)
