@@ -115,6 +115,8 @@ SPARKLE_DOWNLOAD_URL_PREFIX="https://github.com/thuongtin/lid-awake/releases/dow
 
 Use `SPARKLE_RELEASE_NOTES=/path/to/release-notes.md` if the appcast item should embed release notes. Use `SPARKLE_ED_KEY_FILE` or `SPARKLE_PRIVATE_KEY` only in local automation where the secret is supplied from a secure store.
 
+`package_appcast.sh` runs the same release gate as `package_dmg.sh` before it reaches the signing tool: `dist/LidAwake.app` must be the Developer ID signed, notarized, stapled release build with an `https` update feed. It also requires a stapled DMG, or, when no DMG exists, a zip that holds the stapled app (recreate the zip after stapling, step 7), and an `https` download prefix. `ALLOW_NON_DEVELOPER_ID_RELEASE=1` skips these checks for local packaging tests only.
+
 Never commit Apple ID credentials, app-specific passwords, private keys, or certificate exports.
 
 ## Public Release Checklist

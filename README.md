@@ -154,6 +154,7 @@ The appcast is written to `dist/releases/appcast/appcast.xml`. Sparkle uses the 
 - `script/package_release.sh`: local release archive and checksum command.
 - `script/package_dmg.sh`: DMG creation command for notarized and stapled app bundles.
 - `script/package_appcast.sh`: Sparkle appcast generation command for notarized release archives.
+- `script/release_gate.sh`: shared check that the DMG and appcast steps only package the signed, notarized release build.
 - `scripts/sparkle_public_key.txt`: public Sparkle EdDSA key used by release builds.
 - `scripts/check.sh`: CI-safe build, test, stage, and plist lint.
 - `scripts/verify.sh`: optional local runtime smoke verification that may launch the app.

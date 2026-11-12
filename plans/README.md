@@ -42,7 +42,7 @@ và cập nhật dòng status của plan trong file này khi hoàn tất.
 | 020 | Validate Sparkle staging inputs and test the update configuration parsing | P2 | S-M | Sparkle change set committed | DONE |
 | 021 | Add AGENTS.md agent guide (commands, conventions, danger zones) | P2 | S | best after 017-020 | DONE |
 | 022 | Keep the Repair offer after a failed watchdog re-arm | P1 | S | working-tree `clock.now` edits committed | DONE |
-| 025 | Gate appcast packaging the same way as the DMG | P1 | S | - | TODO |
+| 025 | Gate appcast packaging the same way as the DMG | P1 | S | - | DONE |
 | 023 | Stop redundant pmset reads and SwiftUI publishes on the 5 second tick | P2 | S | 022 | TODO |
 | 026 | Notify whenever a hold is released | P2 | S | - | DONE |
 | 024 | Answer the app before the helper watchdog reads pmset | P2 | S | - (manual QA by maintainer afterwards) | DONE, pending manual QA items 9, 10, 11, 13, 14 |
