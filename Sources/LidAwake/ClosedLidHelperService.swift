@@ -90,14 +90,33 @@ enum ClosedLidHelperFailure: LocalizedError, Equatable {
     }
 }
 
+struct RepairRegistrationTimedOut: LocalizedError {
+    var errorDescription: String? {
+        "macOS did not finish registering Lid Awake Helper again in time."
+    }
+}
+
 final class ClosedLidHelperService {
     private let xpcResponseTimeout: TimeInterval = 4
     /// launchd tears down an idle on-demand daemon between calls, so one lost
     /// connection is retried before the app blames the registration.
     private let connectionLostRetryCount = 1
+    /// How long a repair waits before each register after the unregister.
+    /// Background Task Management refuses a register that comes too soon after
+    /// an unregister, and every refused attempt pushes the next allowed one
+    /// further out, so the attempts are few and spaced apart.
+    private let repairRegisterDelays: [TimeInterval] = [2, 3, 5]
+    /// Covers the unregister and every register attempt, in case macOS never
+    /// answers the unregister.
+    private let repairRegistrationTimeout: TimeInterval = 15
 
     private var service: SMAppService {
         SMAppService.daemon(plistName: LidAwakeHelperConstants.daemonPlistName)
+    }
+
+    /// Where the daemon plist's `BundleProgram` points inside this app bundle.
+    private var bundledHelperURL: URL {
+        Bundle.main.bundleURL.appendingPathComponent("Contents/Library/LaunchServices/LidAwakeHelper")
     }
 
     var status: ClosedLidHelperStatus {
@@ -124,15 +143,61 @@ final class ClosedLidHelperService {
         }
     }
 
-    func repairRegistration() throws {
-        switch status {
-        case .notRegistered:
-            break
-        case .enabled, .requiresApproval, .notFound, .unavailable(_):
-            try? service.unregister()
+    /// Re-registers the helper, replacing whatever process launchd had for it.
+    ///
+    /// `completion` runs once, on an arbitrary queue, within
+    /// `repairRegistrationTimeout`. A `register()` sent right after an
+    /// unregister fails with "Operation not permitted", so it waits for the
+    /// unregister to complete and then for each of `repairRegisterDelays`.
+    func repairRegistration(completion: @escaping (Result<Void, Error>) -> Void) {
+        let completionGate = XPCCompletionGate()
+        let finish: (Result<Void, Error>) -> Void = { result in
+            completionGate.run {
+                completion(result)
+            }
+        }
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + repairRegistrationTimeout) {
+            finish(.failure(RepairRegistrationTimedOut()))
         }
 
-        try service.register()
+        guard status != .notRegistered else {
+            finish(Result { try service.register() })
+            return
+        }
+
+        service.unregister { [self] _ in
+            // A failed unregister still leaves register() as the way back; its
+            // own error is the one worth reporting.
+            register(after: repairRegisterDelays, completionGate: completionGate, finish: finish)
+        }
+    }
+
+    private func register(
+        after delays: [TimeInterval],
+        completionGate: XPCCompletionGate,
+        finish: @escaping (Result<Void, Error>) -> Void
+    ) {
+        guard let delay = delays.first else {
+            return
+        }
+
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + delay) { [self] in
+            guard !completionGate.isFinished else {
+                return
+            }
+
+            do {
+                try service.register()
+                finish(.success(()))
+            } catch {
+                guard delays.count > 1 else {
+                    finish(.failure(error))
+                    return
+                }
+
+                register(after: Array(delays.dropFirst()), completionGate: completionGate, finish: finish)
+            }
+        }
     }
 
     func unregister() throws {
@@ -148,7 +213,7 @@ final class ClosedLidHelperService {
     /// one. Nothing else reports that difference: `status` only reads the
     /// `SMAppService` record, which stays `.enabled` either way.
     func probeConnection(reply: @escaping (Result<Void, ClosedLidHelperFailure>) -> Void) {
-        withRemoteObject { remote, finish in
+        withRemoteObject { remote, _, finish in
             remote.readClosedLidStatus { _ in
                 finish {
                     reply(.success(()))
@@ -159,8 +224,34 @@ final class ClosedLidHelperService {
         }
     }
 
+    /// Reports whether the helper process that answers is the build this app
+    /// bundle ships. See `ClosedLidHelperBuildCheck` for why it can differ.
+    ///
+    /// `reply` runs once, on an arbitrary queue, within `xpcResponseTimeout`.
+    /// A connection the helper gave up, after the one retry every call gets,
+    /// is `.refused`. A helper that is only slow is `.unknown`, since nothing
+    /// says a new registration would answer any faster.
+    func checkRunningHelperBuild(reply: @escaping (ClosedLidHelperBuildCheck) -> Void) {
+        let bundledHelperURL = bundledHelperURL
+        withRemoteObject { remote, connection, finish in
+            remote.readClosedLidStatus { _ in
+                // Compared before the connection is given up, while its
+                // process identifier still names the helper that just answered.
+                let result = RunningHelperBuild.check(
+                    processIdentifier: connection.processIdentifier,
+                    bundledHelperURL: bundledHelperURL
+                )
+                finish {
+                    reply(result)
+                }
+            }
+        } failure: { failure in
+            reply(failure == .connectionLost ? .refused : .unknown)
+        }
+    }
+
     func setClosedLidMode(enabled: Bool, reply: @escaping (Result<Void, Error>) -> Void) {
-        withRemoteObject { remote, finish in
+        withRemoteObject { remote, _, finish in
             remote.setClosedLidMode(enabled: enabled) { success, message in
                 finish {
                     if success {
@@ -180,7 +271,7 @@ final class ClosedLidHelperService {
     }
 
     private func withRemoteObject(
-        operation: @escaping (LidAwakeHelperXPCProtocol, @escaping (@escaping () -> Void) -> Void) -> Void,
+        operation: @escaping (LidAwakeHelperXPCProtocol, NSXPCConnection, @escaping (@escaping () -> Void) -> Void) -> Void,
         failure: @escaping (ClosedLidHelperFailure) -> Void
     ) {
         connect(
@@ -194,7 +285,7 @@ final class ClosedLidHelperService {
     }
 
     private func connect(
-        operation: @escaping (LidAwakeHelperXPCProtocol, @escaping (@escaping () -> Void) -> Void) -> Void,
+        operation: @escaping (LidAwakeHelperXPCProtocol, NSXPCConnection, @escaping (@escaping () -> Void) -> Void) -> Void,
         retriesRemaining: Int,
         deadline: DispatchTime,
         failure: @escaping (ClosedLidHelperFailure) -> Void
@@ -262,7 +353,7 @@ final class ClosedLidHelperService {
             }
         }
 
-        operation(remote) { completion in
+        operation(remote, connection) { completion in
             completionGate.run {
                 connection.invalidate()
                 completion()
@@ -275,6 +366,12 @@ final class ClosedLidHelperService {
 private final class XPCCompletionGate: @unchecked Sendable {
     private let lock = NSLock()
     private var didFinish = false
+
+    var isFinished: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return didFinish
+    }
 
     func run(_ operation: () -> Void) {
         lock.lock()

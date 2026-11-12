@@ -16,6 +16,13 @@ if [[ ! -d "$APP_BUNDLE" ]]; then
   exit 2
 fi
 
+# shellcheck source=script/release_gate.sh
+source "$ROOT_DIR/script/release_gate.sh"
+
+if [[ "$ALLOW_NON_DEVELOPER_ID_RELEASE" != "1" ]]; then
+  require_public_release_bundle "$APP_BUNDLE" || exit 2
+fi
+
 if [[ -z "$SIGNING_IDENTITY" ]]; then
   SIGNING_IDENTITY="$(
     security find-identity -v -p codesigning 2>/dev/null \

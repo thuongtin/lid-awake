@@ -80,7 +80,6 @@ public struct UserSettings: Codable, Equatable, Sendable {
         case lidClosedDisplayMode
         case lockScreenWhenLidCloses
         case stopAt
-        case pauseUntil
     }
 
     public init(from decoder: Decoder) throws {
@@ -100,8 +99,10 @@ public struct UserSettings: Codable, Equatable, Sendable {
             Bool.self,
             forKey: .lockScreenWhenLidCloses
         ) ?? false
+        // A legacy `pauseUntil` is ignored on purpose. It meant "stay off
+        // until then", so reading it as a stop deadline would keep the Mac
+        // awake through a pause, and an expired one would turn the app off.
         self.stopAt = try container.decodeIfPresent(Date.self, forKey: .stopAt)
-            ?? container.decodeIfPresent(Date.self, forKey: .pauseUntil)
     }
 
     public func encode(to encoder: Encoder) throws {

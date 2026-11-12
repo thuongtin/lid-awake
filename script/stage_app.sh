@@ -10,7 +10,7 @@ BUNDLE_ID="com.thuongtin.LidAwake"
 HELPER_LABEL="com.thuongtin.LidAwake.Helper"
 HELPER_PLIST_NAME="$HELPER_LABEL.plist"
 MIN_SYSTEM_VERSION="14.0"
-APP_VERSION="${APP_VERSION:-0.1.7}"
+APP_VERSION="${APP_VERSION:-0.1.9}"
 APP_BUILD="${APP_BUILD:-$(git rev-list --count HEAD 2>/dev/null || printf '1')}"
 CONFIGURATION="${CONFIGURATION:-debug}"
 SIGNING_IDENTITY="${SIGNING_IDENTITY:-}"
@@ -172,10 +172,14 @@ cat >"$INFO_PLIST" <<PLIST
   <string>$APP_VERSION</string>
   <key>CFBundleVersion</key>
   <string>$APP_BUILD</string>
+  <key>LidAwakeBuildConfiguration</key>
+  <string>$CONFIGURATION</string>
   <key>LSApplicationCategoryType</key>
   <string>public.app-category.utilities</string>
   <key>LSMinimumSystemVersion</key>
   <string>$MIN_SYSTEM_VERSION</string>
+  <key>LSUIElement</key>
+  <true/>
   <key>NSHumanReadableCopyright</key>
   <string>Copyright (c) 2026 Lid Awake contributors</string>
   <key>NSPrincipalClass</key>

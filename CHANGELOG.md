@@ -4,6 +4,27 @@ All notable changes to Lid Awake will be documented in this file.
 
 The format follows dated release sections after the first tagged release.
 
+## 0.1.9 - 2026-11-12
+
+- Fixed updates needing a manual Repair. After an update the previous version's Lid Awake Helper either kept running in place of the new one or refused the updated app and left closed-lid mode blocked behind a Repair warning. The app now notices on launch that the running helper is not the one it ships and replaces it on its own, with no prompt and no new approval.
+- Fixed a missing notification when a hold ends because the power adapter is unplugged with "only when plugged in" on, or because macOS refuses the power assertion.
+- Fixed a slow closed-lid change being reported as a lost helper with a Repair offer instead of the real `pmset` error. The helper now answers the app before its restore watchdog does its bookkeeping.
+- Kept the Repair offer on screen when re-arming the helper watchdog fails, instead of clearing the warning and resending the change.
+- Stopped running `pmset` and republishing unchanged state on every evaluation tick while Keep Awake is blocked or already holding.
+- Bounded the code signing status check with a timeout so it reports an unavailable signature instead of hanging.
+- Required appcast packaging to pass the same signed, notarized release gate as the DMG, and to confirm that the archive it points at holds the stapled release build and nothing else.
+
+## 0.1.8 - 2026-10-13
+
+- Added a helper watchdog that restores app-owned closed-lid mode after the app crashes or is force quit, and retries failed restores.
+- Preserved closed-lid ownership through command timeouts, helper repair, removal, and app termination so pending changes can be restored safely.
+- Prevented command-line helper maintenance from racing a running app and restored closed-lid mode before unregistering the helper.
+- Moved blocking system commands off the main thread and added bounded subprocess timeouts to keep the interface responsive.
+- Ignored stale display sleep and screen lock failures after the lid reopens, and left the screen alone when using an external display.
+- Fixed scheduled-stop input handling, cleared stop deadlines when Keep Awake turns off, and avoided treating legacy pause deadlines as scheduled stops.
+- Kept timers active during modal alerts, deduplicated blocked-state notifications, and clarified login items awaiting approval.
+- Required a signed, notarized release build when packaging public DMGs.
+
 ## 0.1.7 - 2026-07-29
 
 - Fixed a blank Settings window when Settings was opened from anywhere other than the menu bar popover.

@@ -41,6 +41,35 @@ final class ClosedLidLockCoordinatorTests: XCTestCase {
         XCTAssertEqual(deviceLocker.lockCount, 1)
     }
 
+    func testLidClosureIDChangesOnlyWhenAClosureStartsOrEnds() {
+        let clamshellStateReader = FakeLockClamshellStateReader(state: .open)
+        let coordinator = ClosedLidLockCoordinator(
+            clamshellStateReader: clamshellStateReader,
+            deviceLocker: FakeDeviceLocker()
+        )
+        var settings = UserSettings.defaults
+        settings.lockScreenWhenLidCloses = true
+
+        coordinator.update(settings: settings)
+        let openID = coordinator.lidClosureID
+        coordinator.update(settings: settings)
+        XCTAssertEqual(coordinator.lidClosureID, openID)
+
+        clamshellStateReader.state = .closed
+        coordinator.update(settings: settings)
+        let closedID = coordinator.lidClosureID
+        coordinator.update(settings: settings)
+        XCTAssertNotEqual(closedID, openID)
+        XCTAssertEqual(coordinator.lidClosureID, closedID)
+
+        coordinator.forgetLidState()
+        XCTAssertNotEqual(coordinator.lidClosureID, closedID)
+        let forgottenID = coordinator.lidClosureID
+        coordinator.update(settings: settings)
+        coordinator.forgetLidState()
+        XCTAssertEqual(coordinator.lidClosureID, forgottenID)
+    }
+
     func testDoesNotLockWhenStateMovesFromUnavailableToClosed() {
         let clamshellStateReader = FakeLockClamshellStateReader(state: .unavailable)
         let deviceLocker = FakeDeviceLocker()
@@ -134,6 +163,81 @@ final class ClosedLidLockCoordinatorTests: XCTestCase {
         }
         XCTAssertTrue(message.contains("ScreenLock"))
         XCTAssertEqual(deviceLocker.lockCount, 1)
+    }
+}
+
+extension ClosedLidLockCoordinatorTests {
+    private func lockOnClose(
+        lockState: LockScreenStateReader
+    ) -> (ClosedLidLockCoordinator, FakeLockClamshellStateReader, UserSettings) {
+        let clamshellStateReader = FakeLockClamshellStateReader(state: .open)
+        let coordinator = ClosedLidLockCoordinator(
+            clamshellStateReader: clamshellStateReader,
+            deviceLocker: FakeDeviceLocker(),
+            screenLockStateReader: lockState
+        )
+        var settings = UserSettings.defaults
+        settings.lockScreenWhenLidCloses = true
+        coordinator.update(settings: settings)
+        clamshellStateReader.state = .closed
+        XCTAssertEqual(coordinator.update(settings: settings), .requestedLock)
+        return (coordinator, clamshellStateReader, settings)
+    }
+
+    func testReportsALockThatNeverHappened() {
+        let lockState = LockScreenStateReader(state: .unlocked)
+        let (coordinator, _, settings) = lockOnClose(lockState: lockState)
+
+        XCTAssertEqual(coordinator.update(settings: settings), .none)
+        XCTAssertEqual(coordinator.update(settings: settings), .none)
+        XCTAssertEqual(
+            coordinator.update(settings: settings),
+            .failed(ClosedLidLockCoordinator.lockNotObservedMessage)
+        )
+        // Reported once per close, not on every tick after.
+        XCTAssertEqual(coordinator.update(settings: settings), .none)
+    }
+
+    func testALockThatLandsIsNotReported() {
+        let lockState = LockScreenStateReader(state: .unlocked)
+        let (coordinator, _, settings) = lockOnClose(lockState: lockState)
+
+        XCTAssertEqual(coordinator.update(settings: settings), .none)
+        lockState.state = .locked
+        for _ in 0..<5 {
+            XCTAssertEqual(coordinator.update(settings: settings), .none)
+        }
+    }
+
+    func testAnUnreadableLockStateIsNotReported() {
+        let lockState = LockScreenStateReader(state: .unavailable)
+        let (coordinator, _, settings) = lockOnClose(lockState: lockState)
+
+        for _ in 0..<5 {
+            XCTAssertEqual(coordinator.update(settings: settings), .none)
+        }
+    }
+
+    func testOpeningTheLidStopsTheCheck() {
+        let lockState = LockScreenStateReader(state: .unlocked)
+        let (coordinator, clamshell, settings) = lockOnClose(lockState: lockState)
+
+        clamshell.state = .open
+        for _ in 0..<5 {
+            XCTAssertEqual(coordinator.update(settings: settings), .none)
+        }
+    }
+}
+
+private final class LockScreenStateReader: ScreenLockStateReading {
+    var state: ScreenLockState
+
+    init(state: ScreenLockState) {
+        self.state = state
+    }
+
+    func screenLockState() -> ScreenLockState {
+        state
     }
 }
 

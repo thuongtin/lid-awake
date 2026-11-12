@@ -5,7 +5,10 @@ Refreshed on 2026-06-28 at commit `3465524` for the second deep audit and
 execution batch. Refreshed again on 2026-07-02 at commit `5d89d38` for the
 third deep audit (plans 017-021); the Sparkle 2 integration was still
 uncommitted in the working tree at that time and the new plans assume it
-lands as-is. Execute theo thứ tự dưới đây trừ khi dependency nói khác.
+lands as-is. Refreshed on 2026-11-12 at commit `a81523c` for the fourth deep
+audit (plans 022-026); see the fourth recon summary for the uncommitted
+working-tree edits two of those plans assume. Execute theo thứ tự dưới đây
+trừ khi dependency nói khác.
 
 Plan 001 is historical greenfield context only. Plans 002 through 010 are the
 current Open Source readiness sequence for the existing SwiftPM app.
@@ -38,6 +41,11 @@ và cập nhật dòng status của plan trong file này khi hoàn tất.
 | 019 | Cut idle pmset polling, per-tick status churn, and 5-second log spam | P1 | M | - | DONE |
 | 020 | Validate Sparkle staging inputs and test the update configuration parsing | P2 | S-M | Sparkle change set committed | DONE |
 | 021 | Add AGENTS.md agent guide (commands, conventions, danger zones) | P2 | S | best after 017-020 | DONE |
+| 022 | Keep the Repair offer after a failed watchdog re-arm | P1 | S | working-tree `clock.now` edits committed | DONE |
+| 025 | Gate appcast packaging the same way as the DMG | P1 | S | - | DONE |
+| 023 | Stop redundant pmset reads and SwiftUI publishes on the 5 second tick | P2 | S | 022 | DONE |
+| 026 | Notify whenever a hold is released | P2 | S | - | DONE |
+| 024 | Answer the app before the helper watchdog reads pmset | P2 | S | - (manual QA by maintainer afterwards) | DONE, pending manual QA items 13, 14 and the unapproved-helper case of 11 (items 9, 10 and the rest of 11 passed on 0.1.9 build 100, 2026-11-12) |
 
 Status values: TODO | IN PROGRESS | DONE | BLOCKED with one-line reason |
 REJECTED with one-line rationale.
@@ -68,6 +76,59 @@ REJECTED with one-line rationale.
 - 018 and 019 are independent of each other and of the Sparkle change.
 - 021 should land last in this batch so AGENTS.md documents the final CI and
   helper shape.
+- 022 and 023 quote `Sources/LidAwake/AppModel.swift` and
+  `Tests/LidAwakeTests/AppModelLifecycleTests.swift` as they are in the
+  working tree, which differs from commit `a81523c` (see the fourth recon
+  summary). Commit those edits first; each plan carries a `grep` precondition
+  that stops the executor if they are missing.
+- 023 must land after 022: both edit `clearClosedLidErrorUnlessRemovalPending`
+  and 023's guard builds on 022's.
+- 024, 025, and 026 touch files that are identical in the commit and the
+  working tree, are independent of each other and of 022/023, and can run in
+  any order or in parallel. The table lists the batch by leverage: 022 and 025
+  first.
+- 024 changes the privileged helper. Its executor stops at
+  `DONE, pending manual QA`; the maintainer runs items 9, 10, 11, 13, and 14
+  of the checklist in `docs/power-model.md` on a signed build before the next
+  release.
+- 025 adds `script/release_gate.sh` and one sentence each to `AGENTS.md`,
+  `README.md`, and `docs/releasing.md`. The last two had unrelated uncommitted
+  edits at planning time; the plan touches different lines.
+
+## Recon Summary (fourth audit, 2026-11-12)
+
+- Git state: branch `fix/closed-lid-ownership`, commit `a81523c`
+  ("Release 0.1.8"), with uncommitted working-tree edits made earlier in the
+  same session and already passing `./scripts/check.sh`: `Date()` replaced by
+  the injected `clock.now` in `AppModel` (six places) and `SettingsView`, a
+  bounded and testable `codesign` call in `AppCommandRunner`, new
+  `Tests/LidAwakeTests/AppCommandRunnerTests.swift`, two new lifecycle tests,
+  and matching doc and test touch-ups. Plans 022 and 023 quote that working
+  tree. `CONTRIBUTING.md`, `README.md`, `docs/releasing.md`, and the untracked
+  `docs/build-notarize-release.vi.md` carry the maintainer's own pending
+  edits and were left alone.
+- Test suite at planning time (working tree): 238 tests, 0 failures
+  (`LidAwakeTests` 108, `LidAwakeCoreTests` 130).
+- Every fix in plans 022-026 was applied to a scratch copy of the repo before
+  the plan was written. With all five applied: `LidAwakeTests` 112 and
+  `LidAwakeCoreTests` 133 tests, 0 failures, `./scripts/check.sh` exit 0,
+  `shellcheck` exit 0. Each new regression test was seen failing before its
+  fix. Nothing was applied to this repository.
+- Not verified, by design: the manual QA for 024 (needs a signed build and
+  live `pmset` changes) and the positive path of 025 with a stapled DMG and
+  the real `generate_appcast` (the real signer was never run, so the Sparkle
+  private key was never touched).
+- The maintainer asked for the audit to be redone as thoroughly as possible
+  and gave no selection, so plans were written for the top five findings by
+  leverage. Everything else that survived vetting is listed under "Findings
+  Considered And Rejected" as backlog.
+- Not audited in this pass: `MainMenuBuilder.swift`, the app-side internals of
+  `ClosedLidDisplayCoordinator`, the four `Agent*` files,
+  `scripts/generate_app_icon.swift`, `site/assets/animations.js` and
+  `style.css`, `SoftwareUpdateService.swift` and Sparkle's schedule,
+  `ActivationPolicyController.swift`, a deprecated-API sweep, the installed
+  runtime bundle, `npm audit` for the site, `CGSession` behaviour on macOS 14
+  and 15, git churn, and any live measurement.
 
 ## Recon Summary (third audit, 2026-07-02)
 
@@ -153,3 +214,87 @@ re-audits them:
   original AgentAwake direction with a hook ingestion entry point and
   sessions UI (direction, M-L, see plan 001 for the original vision). Do not
   execute either without an explicit maintainer decision.
+
+Fourth audit (2026-11-12, commit `a81523c`) - rejected, or confirmed but not
+planned, so nobody re-audits them. File and line references are to the
+working tree at that date.
+
+Rejected:
+
+- Late closed-lid change replies arriving after termination has started:
+  rejected. The helper handles requests serially, so the enable's reply
+  always precedes the disable's, and a stale ownership record is cleared by
+  the reducer at the next launch.
+- Showing the date next to the scheduled stop time: rejected. A stop is at
+  most 720 minutes away, so a time of day is never ambiguous.
+
+Needs a maintainer decision before any plan (highest value in the backlog):
+
+- The helper forgets its restore watch when launchd restarts it while the app
+  keeps running, because the app only re-arms at its own launch
+  (`rearmClosedLidRestoreWatchdogIfNeeded` in `AppModel`). Until the next app
+  launch, a crash of the app would leave `disablesleep 1` on. Low probability,
+  high impact, effort M. Options: the helper persists the watched PID and
+  start time in a root-owned file; the helper reports an instance ID over XPC
+  and the app re-arms when it changes; a `KeepAlive` daemon; or the app resets
+  its re-arm flag whenever the helper status leaves `.enabled`. Each changes
+  the helper trust boundary or the XPC protocol, hence no plan without a
+  choice.
+- Pausing the 5 second evaluate timer and the 1 second side-effects timer
+  while Keep Awake is off, and replacing the 1 second lid and display polling
+  (two `IOKitClamshellStateReader` instances) with IOKit notifications.
+  Effort M, risk MED; the saving is real but the app is correct today.
+
+Confirmed, small, left as backlog:
+
+- `PMSetService` parsing treats every `SleepDisabled` token other than `1` as
+  disabled (`PMSetService.swift:83`).
+- `closedLidHelperRemovalRequested` stays set when an in-app removal aborts.
+- In-app helper removal trusts a `.disabled` read and unregisters without
+  sending a disable.
+- The Set Up button in Settings is not disabled while a change is in flight.
+- The 1 second tick calls `isExecutableFile` and
+  `AXIsProcessTrustedWithOptions` every time.
+- `script/stage_app.sh:146-148` regenerates the app icon on every stage.
+- `script/package_dmg.sh:100` uses `hdiutil create -volname ... -format`,
+  which prints a deprecation warning on Darwin 27.
+- `script/stage_app.sh` accepts `SPARKLE_ALLOW_INSECURE_FEED` for release
+  builds; plan 025 makes the result unshippable, staging itself is unchanged.
+- Dead guard in `shouldEnableClosedLidMode` (`AppModel.swift:1116`, a flag
+  that is always true) and a `restoreError` race in `ClosedLidHelperRemoval`
+  (lines 137-145).
+- `CGSession` does not exist on macOS 27.0.1, so lock-on-close always takes
+  the keyboard-shortcut fallback there; already documented in
+  `docs/developer-permissions.md`.
+- `./script/build_and_run.sh --verify` depends on `rg` without checking for
+  it.
+- The comment at `ClosedLidHelperService.swift:101` does not match what the
+  retry does.
+- Docs: `docs/power-model.md` (lines 14, 62, 65) still describes closed-lid
+  mode as a separate opt-in toggle and overstates the helper's client
+  requirement (line 31, defence in depth only); `docs/releasing.md` tells the
+  maintainer to `export` the app-specific password into the shell environment
+  (placeholder value only, no real secret) instead of a `notarytool` keychain
+  profile, and step 7 gives no command.
+- Site: `site/index.html:21` says v0.1.7 and `:189` says 0.1.4; the battery
+  cutoff copy does not match the app; GSAP is loaded from a CDN without SRI
+  and the site sets no security headers; the 18 site tests pass by hand but
+  are not run in CI.
+- CI: the workflow has no `permissions:` block and pins actions by tag;
+  `.gitignore` has no patterns for key or credential files.
+- Tests: `FakeClosedLidHelperService` does not follow the real status rules;
+  `waitUntil` returns silently on timeout and some tests sleep in real time;
+  no `AppModel` test covers the battery cutoff restoring closed-lid mode.
+
+Reported by audit subagents but not opened and confirmed, so treat as leads
+only: missing tests around `ClosedLidHelperService` retry and deadline logic,
+around the helper's connection-accept glue, and around the `AppDelegate` quit
+handshake; duplicated test fakes (two `FakeClock` definitions); no Swift
+formatter or linter in CI; cheaper steady-state checks of closed-lid mode
+while holding.
+
+Direction (options for the maintainer, not findings): the agent-session
+machinery is still reachable only through "Manual Hold" (same either/or as in
+the third audit); the 30 second idle debounce is kept "for future non-manual
+modes" that do not exist; the scheduled stop was removed from the popover in
+0.1.6 but its code remains; lid handling could become event-driven.

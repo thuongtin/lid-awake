@@ -26,7 +26,8 @@ sandbox.
   abstractions, and helper XPC contract (fully unit-tested).
 - `Sources/LidAwakeHelper`: privileged helper entrypoint for closed-lid mode.
 - `script/`: staging and packaging (`stage_app.sh`, `build_and_run.sh`,
-  `package_release.sh`, `package_dmg.sh`, `package_appcast.sh`).
+  `package_release.sh`, `package_dmg.sh`, `package_appcast.sh`, and the
+  `release_gate.sh` check the last two share).
 - `scripts/`: checks and assets (`check.sh`, `verify.sh`,
   `sparkle_public_key.txt`).
 - `plans/`: numbered agent plans plus the status index in

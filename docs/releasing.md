@@ -18,7 +18,7 @@ After the app bundle is notarized and stapled, create the user-facing DMG:
 ./script/package_dmg.sh
 ```
 
-The DMG is written to `dist/releases/LidAwake-<version>-macos.dmg` with a matching `.sha256` file. Public DMG packaging also requires a `Developer ID Application` signing identity by default.
+The DMG is written to `dist/releases/LidAwake-<version>-macos.dmg` with a matching `.sha256` file. Public DMG packaging also requires a `Developer ID Application` signing identity by default. Before packaging, it refuses an app bundle that fails `codesign --verify --deep --strict`, is not signed with a Developer ID Application identity, has no stapled notarization ticket, or is not a release build (staging records `LidAwakeBuildConfiguration` in `Info.plist`; a debug bundle staged with `SPARKLE_ENABLED=1` is still refused). `./scripts/check.sh` restages a debug bundle in `dist/`, so run it before staging the release, never between stapling and `package_dmg.sh`.
 
 By default, `package_release.sh` requires a `Developer ID Application` signing identity and fails before packaging if it cannot find one. This prevents accidentally uploading Apple Development or ad-hoc signed archives as public downloads.
 
@@ -114,6 +114,8 @@ SPARKLE_DOWNLOAD_URL_PREFIX="https://github.com/thuongtin/lid-awake/releases/dow
 ```
 
 Use `SPARKLE_RELEASE_NOTES=/path/to/release-notes.md` if the appcast item should embed release notes. Use `SPARKLE_ED_KEY_FILE` or `SPARKLE_PRIVATE_KEY` only in local automation where the secret is supplied from a secure store.
+
+`package_appcast.sh` runs the same release gate as `package_dmg.sh` before it reaches the signing tool or removes the previous appcast: `dist/LidAwake.app` must be the Developer ID signed, notarized, stapled release build with a non-empty `SUPublicEDKey` and an `https` update feed that names a host. The archive it publishes, the DMG or, when no DMG exists, the zip, must hold that same stapled build: the script mounts the DMG read-only (which must itself be stapled and hold only `LidAwake.app` and the `Applications` symlink to `/Applications` at its top level, as `package_dmg.sh` creates it) or extracts the zip (which must hold `LidAwake.app` and nothing else), runs the gate on the app inside, and requires its code signature (CDHash) to match `dist/LidAwake.app`; if the DMG cannot be detached again afterwards, the script stops. Rebuild the archive from the stapled `dist/LidAwake.app` whenever it was created from another build, and recreate the zip after stapling (step 7). The download prefix and the update feed must be `https` URLs with a host and no whitespace or control characters, and `SPARKLE_RELEASE_NOTES` must be an `.html`, `.md`, or `.txt` file. `ALLOW_NON_DEVELOPER_ID_RELEASE=1` skips these checks for local packaging tests only.
 
 Never commit Apple ID credentials, app-specific passwords, private keys, or certificate exports.
 

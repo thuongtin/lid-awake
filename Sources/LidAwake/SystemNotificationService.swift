@@ -8,27 +8,12 @@ final class SystemNotificationService {
     private var permissionRequested = false
 
     func handleTransition(from oldStatus: WakeStatus, to newStatus: WakeStatus) {
-        let event = notificationEvent(from: oldStatus, to: newStatus)
+        let event = NotificationEvent.forTransition(from: oldStatus, to: newStatus)
         guard let event, deduplicator.shouldSend(event) else {
             return
         }
 
         send(event)
-    }
-
-    private func notificationEvent(from oldStatus: WakeStatus, to newStatus: WakeStatus) -> NotificationEvent? {
-        switch (oldStatus, newStatus) {
-        case (_, .holding) where !oldStatus.isHolding:
-            .holdEngaged
-        case (.holding, .watching), (.holding, .inactive):
-            .holdReleased
-        case (_, .blocked(.batteryCutoff)):
-            .batteryCutoff
-        case (_, .blocked(.lowPowerMode)):
-            .lowPowerBlocked
-        default:
-            nil
-        }
     }
 
     private func send(_ event: NotificationEvent) {
@@ -62,14 +47,5 @@ final class SystemNotificationService {
         case .lowPowerBlocked:
             "Low Power Mode is active. Wake assertions are blocked."
         }
-    }
-}
-
-private extension WakeStatus {
-    var isHolding: Bool {
-        if case .holding = self {
-            return true
-        }
-        return false
     }
 }

@@ -11,7 +11,10 @@ public protocol ClamshellStateReading: AnyObject {
 }
 
 public protocol DisplaySleeping: AnyObject {
-    func sleepDisplaysNow() throws
+    /// Returns false when an earlier request is still running and this one
+    /// was folded into it, so no new command started.
+    @discardableResult
+    func sleepDisplaysNow() throws -> Bool
 }
 
 public enum ScreenLockState: Equatable, Sendable {
@@ -38,6 +41,11 @@ public final class ClosedLidDisplayCoordinator {
     private var displaySleepRequestCount = 0
     private var lastClamshellState: ClamshellState?
     private var observedClosedTransition = false
+
+    /// Changes whenever a lid closure the coordinator acts on starts or ends,
+    /// so a display sleep command that fails after its closure ended can be
+    /// told apart from one that failed for the current closure.
+    public private(set) var lidClosureID = 0
 
     public init(
         clamshellStateReader: ClamshellStateReading,
@@ -75,6 +83,9 @@ public final class ClosedLidDisplayCoordinator {
 
         if previousClamshellState == .open {
             observedClosedTransition = settings.lidClosedDisplayMode == .turnDisplayOff
+            if observedClosedTransition {
+                lidClosureID &+= 1
+            }
             displaySleepRequestCount = 0
         } else if previousClamshellState != .closed {
             observedClosedTransition = false
@@ -114,7 +125,12 @@ public final class ClosedLidDisplayCoordinator {
         }
 
         do {
-            try displaySleeper.sleepDisplaysNow()
+            // A request folded into one still running is not an attempt, or
+            // one slow command could use up every retry for this closure.
+            guard try displaySleeper.sleepDisplaysNow() else {
+                return .none
+            }
+
             displaySleepRequestCount += 1
             return .requestedDisplaySleep
         } catch {
@@ -123,7 +139,18 @@ public final class ClosedLidDisplayCoordinator {
         }
     }
 
+    /// Drops the last clamshell state seen, for a stretch where the caller
+    /// stops calling `update`. A lid that closed in that stretch is then not
+    /// taken for a close the user just made.
+    public func forgetLidState() {
+        lastClamshellState = nil
+        resetClosedLidTransition()
+    }
+
     private func resetClosedLidTransition() {
+        if observedClosedTransition {
+            lidClosureID &+= 1
+        }
         displaySleepRequestCount = 0
         observedClosedTransition = false
     }
