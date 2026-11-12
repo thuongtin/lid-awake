@@ -427,6 +427,62 @@ final class AppModelLifecycleTests: XCTestCase {
         XCTAssertEqual(harness.ownershipStore.record?.ownedByThisApp, true)
     }
 
+    func testFailedRearmKeepsOfferingRepairAcrossEvaluates() async {
+        let harness = AppModelHarness(
+            settings: UserSettings(enabled: true),
+            helperStatus: .enabled,
+            closedLidStatus: .enabled,
+            ownershipRecord: ownedRecord()
+        )
+        harness.helper.setClosedLidModeResult = .failure(ClosedLidHelperFailure.connectionLost)
+        harness.helper.probeConnectionResult = .failure(.connectionLost)
+
+        harness.model.start(scheduleTimers: false)
+        await drainMainQueue()
+        XCTAssertTrue(harness.model.shouldOfferClosedLidHelperRepair, "after start")
+        XCTAssertEqual(harness.helper.setClosedLidModeRequests, [true])
+
+        harness.model.evaluate()
+        await drainMainQueue()
+        XCTAssertTrue(harness.model.shouldOfferClosedLidHelperRepair, "after next evaluate")
+        XCTAssertEqual(harness.model.closedLidError, ClosedLidHelperFailure.connectionLostMessage)
+
+        harness.clock.advance(seconds: 31)
+        harness.model.evaluate()
+        await drainMainQueue()
+        harness.model.evaluate()
+        await drainMainQueue()
+        XCTAssertEqual(harness.helper.setClosedLidModeRequests, [true], "no blind resend")
+        XCTAssertTrue(harness.model.shouldOfferClosedLidHelperRepair, "after verify interval")
+    }
+
+    func testFailedRearmRecoversOnceTheHelperAnswers() async {
+        let harness = AppModelHarness(
+            settings: UserSettings(enabled: true),
+            helperStatus: .enabled,
+            closedLidStatus: .enabled,
+            ownershipRecord: ownedRecord()
+        )
+        harness.helper.setClosedLidModeResult = .failure(ClosedLidHelperFailure.connectionLost)
+        harness.helper.probeConnectionResult = .failure(.connectionLost)
+
+        harness.model.start(scheduleTimers: false)
+        await drainMainQueue()
+        harness.model.evaluate()
+        await drainMainQueue()
+
+        harness.helper.setClosedLidModeResult = .success(())
+        harness.helper.probeConnectionResult = .success(())
+        harness.clock.advance(seconds: 31)
+        harness.model.evaluate()
+        await drainMainQueue()
+        await drainMainQueue()
+
+        XCTAssertNil(harness.model.closedLidError)
+        XCTAssertFalse(harness.model.shouldOfferClosedLidHelperRepair)
+        XCTAssertEqual(harness.helper.setClosedLidModeRequests, [true, true])
+    }
+
     func testEnabledModeTheAppDoesNotOwnIsNotRearmed() async {
         let harness = AppModelHarness(
             settings: UserSettings(enabled: true),

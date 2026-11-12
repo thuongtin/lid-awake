@@ -1208,12 +1208,15 @@ final class AppModel: ObservableObject {
         self.closedLidError = nil
     }
 
-    /// Closed-lid mode being on and wanted is the healthy steady state, except
-    /// after a removal that could not finish: there it is the very thing the
-    /// warning is about, and clearing it would hide that the helper is still
-    /// installed.
+    /// Closed-lid mode being on and wanted is the healthy steady state, with
+    /// two exceptions. After a removal that could not finish it is the very
+    /// thing the warning is about, and clearing it would hide that the helper
+    /// is still installed. And a helper the app could not reach says nothing
+    /// about the setting, which stays on: that warning is retired by
+    /// `probeClosedLidHelperIfBlocked()` once the helper answers, and clearing
+    /// it here would take the Repair button away and reconnect blindly.
     private func clearClosedLidErrorUnlessRemovalPending() {
-        guard !closedLidHelperRemovalRequested else {
+        guard !closedLidHelperRemovalRequested, !closedLidHelperNeedsRepair else {
             return
         }
 
